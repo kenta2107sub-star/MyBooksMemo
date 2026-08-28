@@ -1,0 +1,8 @@
+# .dev.vars（.gitignore対象。本番はwrangler secret putで別途設定する）
+# architecture.md 10.1 参照
+
+# Google Gemini API
+GEMINI_API_KEY=your-gemini-api-key-here
+
+# iOSアプリ ⇔ Cloudflare Workers間の認証
+WORKERS_SHARED_SECRET=your-shared-secret-here

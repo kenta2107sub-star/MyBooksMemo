@@ -1,0 +1,57 @@
+# ── Base Project の運用ファイル（公開リポジトリに含めない）────────────
+# CLAUDE.md「初回コミット・Push の規則」規則1 の対象。
+# design/ はコミットするため除外しない。
+CLAUDE.md
+progress.md
+.claude/
+
+# 一時レポート（フェーズごとに生成・破棄されるもの）
+test_report.md
+code_review_report.md
+flow_retrospective.md
+
+# ── 秘密情報（グローバル CLAUDE.md の禁止事項）────────────────────
+.env
+.env.*
+!.env.example
+
+# Cloudflare Workers（architecture.md 5章）
+workers/.dev.vars
+!workers/.dev.vars.example
+workers/.wrangler/
+workers/node_modules/
+# `npx wrangler types`が生成する型定義（`npm run typecheck`が毎回再生成するためコミット不要）
+workers/worker-configuration.d.ts
+
+# iOSアプリのシークレット（architecture.md 8.3）
+MyBooksMemo/Secrets.xcconfig
+!MyBooksMemo/Secrets.xcconfig.example
+
+# ── OS・エディタ ────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Xcode（個人のUI状態・ユーザー固有設定）
+xcuserdata/
+
+# ── 言語・ランタイム別（使うものだけ残して他は削ってよい）──────────────
+# Node.js
+node_modules/
+dist/
+build/
+.next/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# データベース（ローカル用ファイルDB）
+*.db
+*.sqlite3
