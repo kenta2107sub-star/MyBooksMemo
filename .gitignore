@@ -55,3 +55,10 @@ venv/
 # データベース（ローカル用ファイルDB）
 *.db
 *.sqlite3
+
+# Codex運用ファイルは既存の除外規則より優先してGit管理する
+!AGENTS.md
+!progress.md
+!.codex/
+!.codex/**
+.codex/eval/results/
