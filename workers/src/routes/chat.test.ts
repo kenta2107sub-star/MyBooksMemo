@@ -28,6 +28,21 @@ function makeRequest(body: unknown, headers: Record<string, string> = { "X-Share
   });
 }
 
+function makeSizedRequest(body: unknown, byteLength: number, headers: Record<string, string> = {}): Request {
+  const json = JSON.stringify(body);
+  const paddingLength = byteLength - new TextEncoder().encode(json).byteLength;
+  if (paddingLength < 0) throw new Error("テスト本文が指定サイズを超えています");
+  return new Request("https://example.com/chat", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Shared-Secret": "correct-secret",
+      ...headers,
+    },
+    body: json + " ".repeat(paddingLength),
+  });
+}
+
 const validBody = {
   bookTitle: "テスト駆動開発",
   memoContent: "テストを先に書く効用について",
@@ -62,6 +77,96 @@ describe("POST /chat", () => {
     expect(response.status).toBe(200);
   });
 
+  it("境界値：実本文512 KiBとContent-Length 512 KiBは受理し、1 byte超過はGeminiを呼ばず400", async () => {
+    vi.mocked(generateText).mockResolvedValue("質問");
+    const maxBytes = 512 * 1024;
+
+    const atLimit = await handleChat(
+      makeSizedRequest(validBody, maxBytes, { "Content-Length": String(maxBytes) }),
+      env
+    );
+    const overActual = await handleChat(makeSizedRequest(validBody, maxBytes + 1), env);
+
+    expect(atLimit.status).toBe(200);
+    expect(overActual.status).toBe(400);
+    expect(generateText).toHaveBeenCalledTimes(1);
+  });
+
+  it("境界値：Content-Lengthが512 KiBを超える場合は本文読取前に400", async () => {
+    const request = makeRequest(validBody, {
+      "X-Shared-Secret": "correct-secret",
+      "Content-Length": String(512 * 1024 + 1),
+    });
+    const arrayBuffer = vi.spyOn(request, "arrayBuffer");
+
+    const response = await handleChat(request, env);
+
+    expect(response.status).toBe(400);
+    expect(arrayBuffer).not.toHaveBeenCalled();
+    expect(generateText).not.toHaveBeenCalled();
+  });
+
+  it("境界値：bookTitleは500コードポイントを受理し、501はGeminiを呼ばず400", async () => {
+    vi.mocked(generateText).mockResolvedValue("質問");
+
+    const atLimit = await handleChat(makeRequest({ ...validBody, bookTitle: "本".repeat(500) }), env);
+    const overLimit = await handleChat(makeRequest({ ...validBody, bookTitle: "本".repeat(501) }), env);
+
+    expect(atLimit.status).toBe(200);
+    expect(overLimit.status).toBe(400);
+    expect(generateText).toHaveBeenCalledTimes(1);
+  });
+
+  it("境界値：絵文字20,000コードポイントを受理し、20,001はGeminiを呼ばず400", async () => {
+    vi.mocked(generateText).mockResolvedValue("質問");
+
+    const atLimit = await handleChat(makeRequest({ ...validBody, memoContent: "😀".repeat(20_000) }), env);
+    const overLimit = await handleChat(makeRequest({ ...validBody, memoContent: "😀".repeat(20_001) }), env);
+
+    expect(atLimit.status).toBe(200);
+    expect(overLimit.status).toBe(400);
+    expect(generateText).toHaveBeenCalledTimes(1);
+  });
+
+  it("境界値：conversationHistoryは5件を受理し、6件はGeminiを呼ばず400", async () => {
+    vi.mocked(generateText).mockResolvedValue("質問");
+    const turn = { question: "Q", answer: "A" };
+
+    const atLimit = await handleChat(
+      makeRequest({ ...validBody, conversationHistory: Array.from({ length: 5 }, () => turn) }),
+      env
+    );
+    const overLimit = await handleChat(
+      makeRequest({ ...validBody, conversationHistory: Array.from({ length: 6 }, () => turn) }),
+      env
+    );
+
+    expect(atLimit.status).toBe(200);
+    expect(overLimit.status).toBe(400);
+    expect(generateText).toHaveBeenCalledTimes(1);
+  });
+
+  it("境界値：全文字列合計100,000コードポイントを受理し、100,001はGeminiを呼ばず400", async () => {
+    vi.mocked(generateText).mockResolvedValue("質問");
+    const conversationHistory = Array.from({ length: 2 }, () => ({
+      question: "Q".repeat(20_000),
+      answer: "A".repeat(20_000),
+    }));
+
+    const atLimit = await handleChat(
+      makeRequest({ bookTitle: "本", memoContent: "M".repeat(19_999), conversationHistory }),
+      env
+    );
+    const overLimit = await handleChat(
+      makeRequest({ bookTitle: "本", memoContent: "M".repeat(20_000), conversationHistory }),
+      env
+    );
+
+    expect(atLimit.status).toBe(200);
+    expect(overLimit.status).toBe(400);
+    expect(generateText).toHaveBeenCalledTimes(1);
+  });
+
   it("異常系：JSONとしてパースできないボディは400 invalid_requestを返す", async () => {
     const request = new Request("https://example.com/chat", {
       method: "POST",
@@ -74,6 +179,20 @@ describe("POST /chat", () => {
     expect(response.status).toBe(400);
     const json = await response.json();
     expect(json).toMatchObject({ error: "invalid_request" });
+    expect(generateText).not.toHaveBeenCalled();
+  });
+
+  it("異常系：本文ストリームの読取失敗は400 invalid_requestを返す", async () => {
+    const request = makeRequest(validBody);
+    vi.spyOn(request, "arrayBuffer").mockRejectedValue(new Error("body read failed"));
+
+    const response = await handleChat(request, env);
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "invalid_request",
+      message: "リクエストボディがJSONとしてパースできません",
+    });
     expect(generateText).not.toHaveBeenCalled();
   });
 
@@ -92,25 +211,19 @@ describe("POST /chat", () => {
     expect(response.status).toBe(400);
   });
 
-  it("異常系：X-Shared-Secretヘッダーなしは401 unauthorizedを返す", async () => {
-    const response = await handleChat(makeRequest(validBody, {}), env);
+  it.each([
+    ["欠落", {}],
+    ["不一致", { "X-Shared-Secret": "wrong-secret" }],
+  ])("異常系：X-Shared-Secretが%sの場合は本文を読まず401 unauthorizedを返す", async (_case, headers) => {
+    const request = makeRequest({}, headers);
+    const arrayBuffer = vi.spyOn(request, "arrayBuffer");
+
+    const response = await handleChat(request, env);
 
     expect(response.status).toBe(401);
-    const json = await response.json();
-    expect(json).toMatchObject({ error: "unauthorized" });
+    expect(await response.json()).toMatchObject({ error: "unauthorized" });
+    expect(arrayBuffer).not.toHaveBeenCalled();
     expect(generateText).not.toHaveBeenCalled();
-  });
-
-  it("異常系：X-Shared-Secretが不一致の場合401 unauthorizedを返す", async () => {
-    const response = await handleChat(makeRequest(validBody, { "X-Shared-Secret": "wrong-secret" }), env);
-
-    expect(response.status).toBe(401);
-  });
-
-  it("優先順位：ボディ不正・認証も不正の場合はバリデーションが先に走り400を返す", async () => {
-    const response = await handleChat(makeRequest({}, { "X-Shared-Secret": "wrong-secret" }), env);
-
-    expect(response.status).toBe(400);
   });
 
   it("異常系：Geminiがレート制限エラーを投げた場合429 rate_limitedを返す", async () => {

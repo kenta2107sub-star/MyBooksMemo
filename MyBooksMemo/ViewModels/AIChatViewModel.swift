@@ -62,7 +62,6 @@ final class AIChatViewModel {
 
     private var lastQuestionText = ""
     private var pendingTurns: [ConversationTurn] = []
-    private var pendingRetryTurn: ConversationTurn?
     private var hasSaved = false
     private var hasTriggeredAdvice = false
 
@@ -102,6 +101,7 @@ final class AIChatViewModel {
 
     var canSend: Bool {
         mode == .interactive && !isFinished && !isAIThinking && previewError == nil
+            && !lastQuestionText.isEmpty
             && !currentInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -109,33 +109,32 @@ final class AIChatViewModel {
 
     /// 初回の質問取得（`/chat`、conversationHistory: []）
     private func askFirstQuestion() async {
-        guard let memo else { return }
+        guard !isFinished, let memo else { return }
         guard NetworkReachability.isConnected else {
-            await MainActor.run { self.previewError = .offline }
+            guard !isFinished else { return }
+            isAIThinking = false
+            previewError = .offline
             return
         }
-        await MainActor.run { self.isAIThinking = true }
+        isAIThinking = true
         do {
             let response = try await CloudflareWorkersClient.shared.chat(
                 bookTitle: book?.title ?? "",
                 memoContent: memo.joinedContentForAI,
                 conversationHistory: []
             )
-            await MainActor.run {
-                self.isAIThinking = false
-                self.lastQuestionText = response.question
-                self.messages.append(ChatMessage(sender: .ai, text: response.question))
-            }
+            guard !isFinished else { return }
+            isAIThinking = false
+            lastQuestionText = response.question
+            messages.append(ChatMessage(sender: .ai, text: response.question))
         } catch let error as APIError {
-            await MainActor.run {
-                self.isAIThinking = false
-                self.previewError = error.chatFailureReason
-            }
+            guard !isFinished else { return }
+            isAIThinking = false
+            previewError = error.chatFailureReason
         } catch {
-            await MainActor.run {
-                self.isAIThinking = false
-                self.previewError = .apiFailure
-            }
+            guard !isFinished else { return }
+            isAIThinking = false
+            previewError = .apiFailure
         }
     }
 
@@ -148,31 +147,31 @@ final class AIChatViewModel {
         currentInput = ""
 
         let completedTurn = ConversationTurn(question: lastQuestionText, answer: answer)
+        pendingTurns.append(completedTurn)
+        turnCount += 1
 
-        if turnCount + 1 >= maxTurns {
-            pendingTurns.append(completedTurn)
-            turnCount += 1
+        if turnCount >= maxTurns {
             isFinished = true
             messages.append(ChatMessage(sender: .ai, text: "言語化についてのAI対話は今回はここまでです。お疲れさまでした"))
+            saveIfNeeded()
+            triggerAdviceIfNeeded()
             return
         }
 
-        Task { [weak self] in await self?.requestNextQuestion(completedTurn: completedTurn, memo: memo) }
+        isAIThinking = true
+        Task { [weak self] in await self?.requestNextQuestion(memo: memo) }
     }
 
-    private func requestNextQuestion(completedTurn: ConversationTurn, memo: MemoEntry) async {
-        await MainActor.run { self.isAIThinking = true }
-
+    private func requestNextQuestion(memo: MemoEntry) async {
+        guard !isFinished else { return }
         guard NetworkReachability.isConnected else {
-            await MainActor.run {
-                self.isAIThinking = false
-                self.previewError = .offline
-                self.pendingRetryTurn = completedTurn
-            }
+            guard !isFinished else { return }
+            isAIThinking = false
+            previewError = .offline
             return
         }
 
-        let historyForRequest = pendingTurns + [completedTurn]
+        let historyForRequest = pendingTurns
 
         do {
             let response = try await CloudflareWorkersClient.shared.chat(
@@ -180,37 +179,32 @@ final class AIChatViewModel {
                 memoContent: memo.joinedContentForAI,
                 conversationHistory: historyForRequest
             )
-            await MainActor.run {
-                self.isAIThinking = false
-                self.pendingTurns.append(completedTurn)
-                self.turnCount += 1
-                self.lastQuestionText = response.question
-                self.messages.append(ChatMessage(sender: .ai, text: response.question))
-            }
+            guard !isFinished else { return }
+            isAIThinking = false
+            lastQuestionText = response.question
+            messages.append(ChatMessage(sender: .ai, text: response.question))
         } catch let error as APIError {
-            await MainActor.run {
-                self.isAIThinking = false
-                self.previewError = error.chatFailureReason
-                self.pendingRetryTurn = completedTurn
-            }
+            guard !isFinished else { return }
+            isAIThinking = false
+            previewError = error.chatFailureReason
         } catch {
-            await MainActor.run {
-                self.isAIThinking = false
-                self.previewError = .apiFailure
-                self.pendingRetryTurn = completedTurn
-            }
+            guard !isFinished else { return }
+            isAIThinking = false
+            previewError = .apiFailure
         }
     }
 
     /// エラー表示中の「再試行」ボタン（FR-06共通ルールNo.3：ユーザー操作を起点にのみ再送する）
     func retry() {
-        guard mode == .interactive else { return }
+        guard mode == .interactive, !isFinished, !isAIThinking else { return }
         previewError = nil
-        if let turn = pendingRetryTurn, let memo {
-            pendingRetryTurn = nil
-            Task { [weak self] in await self?.requestNextQuestion(completedTurn: turn, memo: memo) }
-        } else {
+        isAIThinking = true
+        if lastQuestionText.isEmpty {
             Task { [weak self] in await self?.askFirstQuestion() }
+        } else if let memo {
+            Task { [weak self] in await self?.requestNextQuestion(memo: memo) }
+        } else {
+            isAIThinking = false
         }
     }
 
@@ -218,6 +212,7 @@ final class AIChatViewModel {
     func endConversation() {
         guard mode == .interactive else { return }
         isFinished = true
+        isAIThinking = false
         saveIfNeeded()
         triggerAdviceIfNeeded()
     }

@@ -88,13 +88,15 @@ enum NDLSearchService {
     }
 }
 
-/// dcndl形式XMLから`dcterms:title`・`dc:creator`（いずれも平文要素）の最初の出現を抽出する。
+/// dcndl形式XMLの先頭`record`から`dcterms:title`・`dc:creator`（いずれも平文要素）を抽出する。
 /// `dc:title`はネスト構造（rdf:Description/rdf:value）を持つため使用しない。
 private final class DCNDLParserDelegate: NSObject, XMLParserDelegate {
     private(set) var title: String?
     private(set) var author: String?
 
     private var buffer = ""
+    private var isInFirstRecord = false
+    private var hasFinishedFirstRecord = false
 
     func parser(
         _ parser: XMLParser,
@@ -104,6 +106,9 @@ private final class DCNDLParserDelegate: NSObject, XMLParserDelegate {
         attributes attributeDict: [String: String] = [:]
     ) {
         buffer = ""
+        if elementName == "record", !hasFinishedFirstRecord {
+            isInFirstRecord = true
+        }
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
@@ -118,7 +123,14 @@ private final class DCNDLParserDelegate: NSObject, XMLParserDelegate {
     ) {
         let trimmed = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
         buffer = ""
-        guard !trimmed.isEmpty else { return }
+
+        if elementName == "record", isInFirstRecord {
+            isInFirstRecord = false
+            hasFinishedFirstRecord = true
+            return
+        }
+
+        guard isInFirstRecord, !trimmed.isEmpty else { return }
 
         switch elementName {
         case "dcterms:title":

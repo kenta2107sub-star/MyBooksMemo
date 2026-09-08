@@ -18,7 +18,7 @@
 
 | カテゴリ | 採用技術 | 選定理由 |
 |---|---|---|
-| 言語 | Swift 5.9系（Xcode 15.2同梱） | 現在の開発環境（Xcode 15.2 / iOS SDK 17.2）がサポートする最新のSwift。SwiftDataの利用に必須 |
+| 言語 | Swift 5.9以上 | 現行コードはXcode 15.2 / iOS SDK 17.2でSimulator向けにビルドする。Appleの[Xcode要件表](https://developer.apple.com/xcode/system-requirements)ではXcode 15.2のDevice SupportはiOS 12以降であり、SDK・Simulatorの上限だけでiOS 26.6実機を非対応とは断定しない |
 | UIフレームワーク | SwiftUI | requirements.mdでネイティブUI前提が確定済み。宣言的UIによりMVVMのView/ViewModel分離がしやすい |
 | アーキテクチャパターン | MVVM | ユーザー確定事項。View（SwiftUI）・ViewModel（`@Observable`または`ObservableObject`）・Model（SwiftData `@Model`）の3層分離 |
 | 最小対応OS | iOS 17.0 | SwiftDataの動作要件（iOS 17+）。かつ現在の開発環境（Xcode 15.2 / iOS SDK 17.2）でビルド可能な上限に合わせた、ユーザー確定事項 |
@@ -34,13 +34,13 @@
 | カテゴリ | 採用技術 | 選定理由 |
 |---|---|---|
 | 言語 | TypeScript | ユーザー確定事項。Cloudflare Workersの型安全な開発に標準的で、`wrangler`のテンプレートもTypeScriptファーストで整備されている |
-| ランタイム/デプロイ | Cloudflare Workers | ユーザー確定事項。クレジットカード登録不要な無料プランがあり、APIキーを秘匿するBFFとして個人開発規模（1日5〜15リクエスト程度）には十分すぎる無料枠（1日10万リクエストまで）を持つ |
+| ランタイム/デプロイ | Cloudflare Workers | 個人利用向けのBFFとして`workers.dev`へ公開し、GeminiのAuth keyをiOSアプリから分離する。プラン、料金、決済方法の要件は変更され得るため、公開直前にCloudflare管理画面と公式文書で確認する |
 | CLIツール | `wrangler` | Cloudflare公式CLI。ローカル開発（`wrangler dev`）・デプロイ（`wrangler deploy`）・シークレット管理（`wrangler secret put`）を一貫して行える |
 | ルーティング | 自前実装（`URL.pathname`分岐） | エンドポイントが`/chat`・`/summarize`・`/advice`の3つのみのため、`itty-router`等のルーティングライブラリを追加せず`fetch`ハンドラ内で`switch`分岐する方が薄く保守しやすい |
 | 外部AI連携 | Google Gemini API（`gemini-3.1-flash-lite`、`fetch`直叩き） | ユーザー確定事項（Phase 1実測により無料枠内で安定動作を確認済み）。Google公式SDKは追加せず、Workersランタイム標準の`fetch`でHTTPS呼び出しする（Node.js専用SDKはWorkersのEdgeランタイムとの相性リスクがあるため回避） |
 | 型バリデーション | 手書きの型ガード関数（`lib/validate.ts`相当） | エンドポイントが3つ・リクエストボディの型が単純なため、zod等の追加は必須ではない。ただし将来的にリクエスト構造が複雑化した場合はzod導入を検討してよい（Phase 1では見送り） |
 
-> ⚠️ 外部ライブラリ（npmパッケージ）は`wrangler`（devDependency）以外、Phase 1では追加しない方針とする。
+> 開発用依存関係は`workers/package-lock.json`を正とし、`npm ci`でWrangler、TypeScript、Vitest、Cloudflare Workers用テスト環境を再現する。実行時バンドルに不要なサーバーフレームワークは追加しない。
 
 ---
 
@@ -243,7 +243,7 @@ MyBooksMemo/
 
 | ファイル | 責務 |
 |---|---|
-| `Models/Book.swift` | `@Model`。`memoEntries`・`conversationLogs`への`@Relationship(deleteRule: .cascade)`を定義する唯一の場所。FR-07の本単位カスケード削除の実体はここ |
+| `Models/Book.swift` | `@Model`。`memoEntries`・`conversationLogs`の関係を保持する。SwiftDataの自動カスケードには依存せず、FR-07の実効的な削除は`BookshelfViewModel.confirmDelete()`と`BookDetailViewModel.confirmDelete()`で子オブジェクトを明示的に削除する |
 | `Services/APIClient.swift` | `NDLSearchService`と`CloudflareWorkersClient`の両方が依存する共通層。タイムアウト値（10秒/15秒）は呼び出し元が指定し、ここでは汎用的な`send(request:timeout:)`のみ提供する。FR-06共通ルール（自動リトライなし・ログ出力）をここに集約する |
 | `Services/CloudflareWorkersClient.swift` | `Config.swift`から`CLOUDFLARE_WORKERS_URL`・`WORKERS_SHARED_SECRET`を読み取り、`/chat`・`/summarize`・`/advice`のリクエスト生成とレスポンスDecodeを担う。ViewModelはこのクライアントのメソッドを呼ぶだけでよい。`/advice`（`generateAdvice()`）は他2エンドポイントと異なり、呼び出し元（`MemoEditorViewModel`・`AIChatViewModel`）がレスポンスを`await`で待たずFire-and-forget的に呼ぶ（画面遷移をブロックしないため） |
 | `Utilities/Config.swift` | ハードコードされたシークレットをコードに持たせないための唯一の読み取り窓口。`Bundle.main.object(forInfoDictionaryKey:)`でInfo.plist値を取得する（7章参照） |
@@ -267,7 +267,7 @@ workers/
 │   │   └── validate.ts            # リクエストボディの型ガード関数（必須フィールドの存在チェック）
 │   └── types.ts                   # ChatRequest/ChatResponse/SummarizeRequest/SummarizeResponse/AdviceRequest/AdviceResponseの型定義
 ├── wrangler.jsonc                 # Workers設定（name・main・compatibility_date）。GEMINI_API_KEY等の秘密値はここに書かない
-├── package.json                   # devDependency: wrangler, typescript のみ
+├── package.json                   # Wrangler・TypeScript・Vitest・Cloudflare Workers用テスト環境の開発依存
 ├── tsconfig.json
 └── .dev.vars                      # ローカル開発用の環境変数（GEMINI_API_KEY・WORKERS_SHARED_SECRET）。.gitignore対象
 ```
@@ -302,10 +302,12 @@ final class Book {
     var cachedSummary: String?               // FR-05：要約キャッシュ
     var cachedSummaryGeneratedAt: Date?      // FR-05：要約の最終生成日時
 
-    @Relationship(deleteRule: .cascade, inverse: \MemoEntry.book)
+    // deleteRuleは将来のSwiftData改善時の保険。
+    // 現行実装はBookshelfViewModel.confirmDelete()で子を明示削除する。
+    @Relationship(deleteRule: .cascade)
     var memoEntries: [MemoEntry] = []
 
-    @Relationship(deleteRule: .cascade, inverse: \ConversationLog.book)
+    @Relationship(deleteRule: .cascade)
     var conversationLogs: [ConversationLog] = []
 
     init(id: UUID = UUID(), title: String, author: String, isbn: String? = nil,
@@ -325,7 +327,7 @@ final class MemoEntry {
     var date: Date          // Calendar.current.startOfDay(for:)で正規化した「日」の値。FR-03の1日1件判定・FR-07の同日ConversationLog検索に使用
     var contentItems: [String]  // FR-03：箇条書き形式の各項目（配列の各要素がSCR-06の入力フォーム1つに対応）。SwiftDataはString配列をそのまま属性として永続化できるため別モデル化しない。保存前に空文字（前後の空白のみを含む場合を含む）の要素を除外済みの状態でここに格納する。Gemini APIへ送信する際（FR-04・FR-05・FR-09）は各要素を改行で連結した1つの文字列として扱う
     var dailyAdvice: String?  // FR-09：自動生成される「今日のアドバイス」。生成トリガー未発生・生成中・生成失敗はいずれもnilのまま（値の有無の2値のみを表す。状態の切り分けはUI側で行う）
-    var book: Book?          // Bookからの@Relationship(inverse:)により対になる。カスケード削除の起点はBook側
+    var book: Book?          // inverseは指定しない。削除はViewModelが明示的に行う
 
     init(id: UUID = UUID(), date: Date, contentItems: [String], dailyAdvice: String? = nil, book: Book? = nil) {
         self.id = id
@@ -361,31 +363,27 @@ final class ConversationLog {
 
 | リレーションシップ | deleteRule | 実装箇所 |
 |---|---|---|
-| `Book.memoEntries` → `MemoEntry` | `.cascade` | `Book`側に`@Relationship(deleteRule: .cascade, inverse: \MemoEntry.book)`を定義。`Book`削除時、紐づく全`MemoEntry`が自動削除される |
-| `Book.conversationLogs` → `ConversationLog` | `.cascade` | 同上パターン。`Book`削除時、紐づく全`ConversationLog`が自動削除される |
+| `Book.memoEntries` → `MemoEntry` | `.cascade`を残すが、実効的には明示削除 | `BookshelfViewModel.confirmDelete()`が全`MemoEntry`を`context.delete()`してから`Book`を削除する |
+| `Book.conversationLogs` → `ConversationLog` | `.cascade`を残すが、実効的には明示削除 | `BookshelfViewModel.confirmDelete()`が全`ConversationLog`を`context.delete()`してから`Book`を削除する |
 | `MemoEntry` ⇔ `ConversationLog`（同日） | リレーションシップなし（アプリケーションロジック） | **意図的にSwiftDataのリレーションシップを定義しない。** 理由は6.3参照 |
 
-`requirements.md`のFR-07で「`bookId`」と表記されている項目は、SwiftDataでは`Book`への`@Relationship`（`book: Book?`プロパティ）として実装する。UUIDを直接持つ代わりにオブジェクト参照を持つ設計とすることで、SwiftDataのカスケード削除機構をそのまま活用できる。
+`requirements.md`のFR-07で「`bookId`」と表記されている項目は、SwiftDataでは`Book`への参照（`book: Book?`）として実装する。UUIDを別に保持せず参照関係を使うが、削除の完了条件はSwiftDataの自動カスケードではなくViewModelの明示削除で保証する。
 
 ### 6.3 メモ単位削除時の同日ConversationLog削除（FR-07 Step7）について
 
 FR-07では「メモ削除時、同一`bookId`・同一`date`の`ConversationLog`も削除するが、`Book.cachedSummary`は保持する」という粒度の異なる削除ルールが定義されている。これは`MemoEntry`と`ConversationLog`という**兄弟関係**の削除連動であり、SwiftDataの`@Relationship`カスケード（親→子の一方向）では表現できない。
 
-そのため、`MemoEntry`と`ConversationLog`の間に直接のリレーションシップは定義せず、`BookDetailViewModel.deleteMemo()`内でアプリケーションロジックとして以下を実施する。
+そのため、`MemoEntry`と`ConversationLog`の間に直接のリレーションシップは定義せず、`BookDetailViewModel.confirmDelete(context:)`内でアプリケーションロジックとして以下を実施する。
 
 ```swift
-// BookDetailViewModel.deleteMemo() の処理イメージ
-func deleteMemo(_ memo: MemoEntry, context: ModelContext) {
+// BookDetailViewModel.confirmDelete(context:) の処理イメージ
+func confirmDelete(context: ModelContext) {
+    guard let memo = memoPendingDeletion else { return }
     let targetDate = memo.date
-    let targetBookID = memo.book?.id
 
-    // 同一book・同一dateのConversationLogを明示的に検索して削除する
-    let descriptor = FetchDescriptor<ConversationLog>(
-        predicate: #Predicate { $0.date == targetDate && $0.book?.id == targetBookID }
-    )
-    if let logs = try? context.fetch(descriptor) {
-        logs.forEach { context.delete($0) }
-    }
+    book.conversationLogs
+        .filter { Calendar.current.isDate($0.date, inSameDayAs: targetDate) }
+        .forEach { context.delete($0) }
 
     context.delete(memo)   // Book.cachedSummaryには触れない（FR-07の仕様通り）
     try? context.save()
@@ -400,7 +398,7 @@ func deleteMemo(_ memo: MemoEntry, context: ModelContext) {
 
 `URLSession`を各Viewから直接叩くのではなく、`Services/`配下に軽量なラッパーを1層挟む。
 
-- **`APIClient.swift`**：どちらの外部通信（NDL API・Cloudflare Workers）にも共通する「タイムアウト指定付きリクエスト送信」「HTTPステータスコード→`APIError`への変換」「FR-06共通ルールNo.5のログ出力（ステータスコード・エンドポイント・タイムスタンプのみ。本文は出力しない）」を1箇所に集約する
+- **`APIClient.swift`**：どちらの外部通信（NDL API・Cloudflare Workers）にも共通する「タイムアウト指定付きリクエスト送信」「HTTPステータスコード→`APIError`への変換」「FR-06共通ルールNo.5の安全なログ出力」を1箇所に集約する。ログ整形はテスト可能な内部関数に分離する
 - **`NDLSearchService.swift`**：`APIClient`を使ってNDL SRU APIを呼び出し、XMLレスポンスをパースして`(title, author, coverImageData)`相当の値を返す。取得した書影画像は`Book.coverImageData`としてダウンロード時点でローカル保存する（NF-06「過去に保存済みデータの閲覧はオフライン可能」の要件を満たすため、表示のたびにNDL側URLへ再アクセスしない設計とする）
 - **`CloudflareWorkersClient.swift`**：`APIClient`を使って`/chat`・`/summarize`・`/advice`を呼び出す。`X-Shared-Secret`ヘッダーの付与、`Codable`によるリクエスト/レスポンスの型安全な変換を担う
 
@@ -414,7 +412,7 @@ Alamofire等のHTTPライブラリは追加しない。理由：呼び出し先�
 | Gemini API（Workers経由）：15秒タイムアウト | `CloudflareWorkersClient`が`APIClient.send(request:timeout: 15)`を呼ぶ |
 | 自動リトライなし（FR-06 No.3） | `APIClient`にリトライ機構を実装しない。「再試行」ボタンはView側のユーザー操作から同じメソッドを再度呼ぶだけ |
 | エラーメッセージのトーン統一（FR-06 No.4） | `Utilities/APIError.swift`の`localizedDescription`相当のcomputed propertyで、Viewに表示する文言を一元管理する |
-| ログ出力（FR-06 No.5） | `APIClient`内で`print()`または`os.Logger`により、ステータスコード・エンドポイント・タイムスタンプのみ出力する。メモ本文・対話内容は引数として渡さない設計にする（そもそもログ出力関数にリクエストボディを渡さない） |
+| ログ出力（FR-06 No.5） | `APIClient`内のテスト可能な内部関数が、HTTP応答を受信した失敗時に限り、タイムスタンプ・`URL.path`・HTTPステータスコードだけを整形する。scheme・host・query・ヘッダー・ボディ・Workersエラー詳細・秘密情報は引数に渡さず、通信エラーにHTTP応答がなければ出力しない |
 
 ---
 
@@ -476,6 +474,15 @@ enum Config {
 
 > ⚠️ この方式はNF-02が定義する「最低限の悪用対策」の範囲内であり、コンパイル済みアプリのInfo.plistから`WORKERS_SHARED_SECRET`の値自体を完全に隠蔽するものではない（IPAを解析されれば読み取り得る）。個人利用アプリでの脅威モデルとして許容する、というrequirements.md NF-02の前提を踏襲する。
 
+### 8.4 実機署名と直接インストール
+
+- AppターゲットのBundle Identifierは`com.kenta2107substar.MyBooksMemo`、Testsターゲットは`com.kenta2107substar.MyBooksMemoTests`とする
+- 有料Apple Developer ProgramのTeamを使い、XcodeのAutomatically manage signingでApp ID、端末登録、Provisioning Profileを管理する。Teamが複数表示された場合は選択を推測しない
+- 2026-09-02〜03の実測では、所有者iPhoneをUSB、CoreDevice、XcodeのRun destinationで安定して列挙できた。明示的なUnsupported OSエラーはなく、証明書のOUとProvisioning ProfileのTeamIdentifierの一致を確認したうえで、自動署名のbuild-for-testing、インストール、起動をPASSした。Team IDは記録しない
+- 実機受入では、手入力による書籍登録、メモの再起動後の永続化、削除、オフライン時のエラー表示・クラッシュなし・データ維持、通信復旧後の再試行、USBとデバッガを外した通常起動をPASSした。公開WorkersとGeminiの実疎通は未確認のため、総合判定は`LIMITED`のままとする
+- 接続を再現するときはUSBを優先し、iPhoneのロック解除、Macの信頼、Developer Mode、XcodeのRun destinationへの列挙を確認する。初期対応ではペアリング解除や端末設定変更を行わず、安定接続後に明示的なUnsupported OSエラーが出た場合だけ必要なXcodeを再判定する
+- Team選択、App ID・Provisioning Profile・端末登録の作成または更新、Developer Mode・信頼設定の変更、署名ビルド・インストールは外部状態へ影響する。将来これらを変更する直前には、必要な値、影響、対象を示して明示承認を得る
+
 ---
 
 ## 9. Cloudflare Workersのプロジェクト構成・デプロイ方法
@@ -497,14 +504,13 @@ enum Config {
 
 ```bash
 cd workers
-npm install
-npx wrangler login                              # Cloudflareアカウント連携（ブラウザ認証）
-npx wrangler secret put GEMINI_API_KEY          # 対話式でGemini APIキーを入力
-npx wrangler secret put WORKERS_SHARED_SECRET   # 対話式で共有シークレットを入力
-npx wrangler deploy
+npm ci
+npm run typecheck
+npm test
+npx wrangler deploy --dry-run
 ```
 
-デプロイ完了時に払い出される`https://mybooksmemo-workers.{アカウント名}.workers.dev`のURLを、iOS側の`Secrets.xcconfig`の`CLOUDFLARE_WORKERS_URL`に設定する。
+上記は非破壊検証のみである。明示承認後にCloudflare認証と初回`npx wrangler deploy`を行い、秘密情報が未登録の状態でfail closedになることを維持する。別の明示承認後に`wrangler secret put`を対話入力で実行する。各`secret put`はWorkerの新バージョンを公開する。公開されたWorkers URLはログや報告に残さず、iOS側の無視対象`Secrets.xcconfig`へ利用者が直接設定する。
 
 ### 9.3 更新デプロイ
 
@@ -523,15 +529,15 @@ cp .dev.vars.example .dev.vars   # GEMINI_API_KEY・WORKERS_SHARED_SECRETを記�
 npx wrangler dev
 ```
 
-### 9.5 無料プランの範囲であることの確認
+### 9.5 利用プランの確認
 
 | 項目 | Cloudflare Workers Free プランの制限 | 本プロジェクトでの想定 |
 |---|---|---|
 | リクエスト数 | 1日10万リクエストまで（UTC 0時にリセット） | 想定利用量は1日5〜15リクエスト程度。上限に対して十分な余裕がある |
 | CPU時間 | 1リクエストあたり10ミリ秒まで | Gemini APIへの`fetch`待ち時間はCPU時間に計上されない（CPU時間はJavaScriptコード自体の実行時間のみを計測し、`fetch`等のI/O待ち時間は含まれない）。本Workerの処理はヘッダー検証とJSON整形のみで、10ミリ秒で十分収まる |
-| クレジットカード登録 | 不要 | Phase 1決定事項（progress.md記載）の通り、無料プランはクレジットカード登録なしで利用開始できる |
+| 料金・決済方法 | 公開直前に最新の公式表示で確認 | カード要否を設計書で断定しない。個人利用の想定量と契約画面の条件を実行直前に照合する |
 
-以上より、Cloudflare Workers Freeプランの範囲内で運用可能である。
+想定リクエスト量は現行のWorkers Free枠に収まる見込みだが、実際の料金・上限・決済条件は本番設定直前の公式表示を正とする。
 
 ---
 
@@ -565,7 +571,7 @@ WORKERS_SHARED_SECRET = your-shared-secret-here
 | 環境変数 | 配置場所 | 取得場所 |
 |---|---|---|
 | `GEMINI_API_KEY` | Cloudflare Workers側のみ（`wrangler secret put`） | Google AI Studio（`https://aistudio.google.com/`）→ APIキー発行画面 |
-| `WORKERS_SHARED_SECRET` | 両側（Workers：`wrangler secret put` / iOS：`Secrets.xcconfig`） | 開発者自身が任意のランダム文字列を生成して決める（例：`openssl rand -hex 32`）。両側で同じ値を設定する |
+| `WORKERS_SHARED_SECRET` | 両側（Workers：`wrangler secret put` / iOS：`Secrets.xcconfig`） | 開発者自身が安全なランダム文字列をパスワードマネージャー等で生成し、両側へ直接入力する。値をGit・ログ・会話へ出さない |
 | `CLOUDFLARE_WORKERS_URL` | iOSアプリ側のみ（`Secrets.xcconfig`） | `wrangler deploy`実行後にターミナルへ出力される`*.workers.dev`のURL |
 
 > ⚠️ `WORKERS_SHARED_SECRET`はiOS側・Workers側の両方に同じ値を設定する必要がある。値を変更する場合は両方を同時に更新すること（片方だけ更新すると全リクエストが401になる）。
@@ -574,5 +580,5 @@ WORKERS_SHARED_SECRET = your-shared-secret-here
 
 ## 要確認事項
 
-- FR-01の書影（cover image）取得方法について：国立国会図書館サーチAPI（SRU、dcndl形式）のレスポンスに書影の画像URLが実際にどのXML要素で含まれるか（または書影が別途サムネイルAPIから取得する方式なのか）は未検証。本ドキュメントでは「XMLパースにより書影情報を抽出する」という方針までを設計したが、具体的なXML要素名・取得方式は`detailed_design.md`作成前、またはFR-01実装着手前のpre-implementation-check（実機での実際のAPIレスポンス確認）で確定させる必要がある
-- Cloudflare Workersのアカウント作成そのものにクレジットカード登録が不要である点は、progress.mdの既存決定事項（Phase 1調査時の判断）を踏襲した。Workers単体の無料プラン制限（リクエスト数・CPU時間）は本ドキュメント作成時にCloudflare公式ドキュメントで再確認済み（9.5参照）
+- FR-01の書影取得は実装前確認で方針を確定済み。ISBNを使うサムネイル取得をベストエフォートで行い、書影がない場合または取得に失敗した場合はプレースホルダー画像を表示する。代替の書影サービスは使わない
+- Cloudflareアカウントのカード要否と料金条件は本番設定直前に管理画面と公式文書で確認する。旧記載の「カード不要」は未確認のため削除した

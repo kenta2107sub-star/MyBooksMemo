@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 @testable import MyBooksMemo
 
@@ -54,5 +55,33 @@ final class APIErrorMappingTests: XCTestCase {
         XCTAssertEqual(APIError.serverError.adviceFailureReason, .apiFailure)
         XCTAssertEqual(APIError.unauthorized.adviceFailureReason, .apiFailure)
         XCTAssertEqual(APIError.decodingError.adviceFailureReason, .apiFailure)
+    }
+}
+
+// FR-06共通ルールNo.5：許可された最小情報だけでログ文字列を組み立てることを検証する。
+final class APIClientLogFormattingTests: XCTestCase {
+    func test_failureLogMessage_時刻とパスとHTTPステータスだけを含む() throws {
+        let url = try XCTUnwrap(
+            URL(string: "https://sensitive-host.invalid/chat?query=dummy-query-secret")
+        )
+        var request = URLRequest(url: url)
+        request.setValue("dummy-header-secret", forHTTPHeaderField: "X-Dummy-Secret")
+        request.httpBody = Data(
+            #"{"message":"dummy-body-secret","error":"dummy-workers-error-detail"}"#.utf8
+        )
+
+        let message = APIClient.failureLogMessage(
+            path: try XCTUnwrap(request.url?.path),
+            statusCode: 401,
+            timestamp: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(message, "[APIClient] 1970-01-01T00:00:00Z /chat -> HTTP 401")
+        XCTAssertFalse(message.contains("https"))
+        XCTAssertFalse(message.contains("sensitive-host.invalid"))
+        XCTAssertFalse(message.contains("dummy-query-secret"))
+        XCTAssertFalse(message.contains("dummy-header-secret"))
+        XCTAssertFalse(message.contains("dummy-body-secret"))
+        XCTAssertFalse(message.contains("dummy-workers-error-detail"))
     }
 }

@@ -73,7 +73,9 @@ final class SummaryViewModel {
         do {
             let response = try await CloudflareWorkersClient.shared.summarize(
                 bookTitle: book.title,
-                memos: book.memoEntries.map { (date: $0.date, content: $0.joinedContentForAI) },
+                memos: book.memoEntries
+                    .sorted { $0.date > $1.date }
+                    .map { (date: $0.date, content: $0.joinedContentForAI) },
                 conversationLogs: book.conversationLogs.map { (date: $0.date, turns: $0.turns) }
             )
             book.cachedSummary = response.summary

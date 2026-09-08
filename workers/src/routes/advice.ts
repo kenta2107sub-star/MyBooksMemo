@@ -1,9 +1,9 @@
 // detailed_design.md 2-3・3-3：POST /advice ハンドラ（FR-09）。
-// validate → 認証(lib/auth) → プロンプト構築 → lib/gemini呼び出し → { advice } を返す
+// 認証(lib/auth) → validate → プロンプト構築 → lib/gemini呼び出し → { advice } を返す
 
 import type { AdviceRequest, AdviceResponse, Env, ErrorResponse } from "../types";
 import { isAuthorized } from "../lib/auth";
-import { isAdviceRequest } from "../lib/validate";
+import { isAdviceRequest, parseJsonBody } from "../lib/validate";
 import { GeminiRateLimitedError, generateText } from "../lib/gemini";
 
 function jsonResponse(body: unknown, status: number): Response {
@@ -37,19 +37,17 @@ function buildPrompt(body: AdviceRequest): string {
 }
 
 export async function handleAdvice(request: Request, env: Env): Promise<Response> {
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
+  if (!isAuthorized(request, env)) {
+    return errorResponse("unauthorized", "X-Shared-Secretが一致しません", 401);
+  }
+
+  const body = await parseJsonBody(request);
+  if (body === undefined) {
     return errorResponse("invalid_request", "リクエストボディがJSONとしてパースできません", 400);
   }
 
   if (!isAdviceRequest(body)) {
     return errorResponse("invalid_request", "リクエストボディの形式が不正です", 400);
-  }
-
-  if (!isAuthorized(request, env)) {
-    return errorResponse("unauthorized", "X-Shared-Secretが一致しません", 401);
   }
 
   try {

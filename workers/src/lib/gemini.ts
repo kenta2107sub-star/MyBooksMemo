@@ -50,12 +50,13 @@ export async function generateText(prompt: string, env: Env): Promise<string> {
     throw new GeminiRequestFailedError("Gemini APIのレスポンスをJSONとしてパースできません");
   }
 
-  const text = extractText(json);
-  if (text === null || text.trim().length === 0) {
-    // NF-03：空文字・想定外の形式は異常系として扱う
-    throw new GeminiRequestFailedError("Gemini APIのレスポンスが空、または想定外の形式です");
+  const extractedText = extractText(json);
+  const text = extractedText?.trim();
+  if (text === undefined || text.length === 0 || Array.from(text).length > 20_000) {
+    // NF-03：空文字・20,000 Unicodeコードポイント超過・想定外の形式は異常系として扱う
+    throw new GeminiRequestFailedError("生成テキストの長さ、またはレスポンス形式が不正です");
   }
-  return text.trim();
+  return text;
 }
 
 function extractText(json: unknown): string | null {

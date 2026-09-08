@@ -57,6 +57,117 @@ describe("POST /summarize", () => {
     expect(response.status).toBe(200);
   });
 
+  it("境界値：memosは1,000件を受理し、1,001件はGeminiを呼ばず400", async () => {
+    vi.mocked(generateText).mockResolvedValue("要約");
+    const memo = { date: "2026-08-01", content: "" };
+
+    const atLimit = await handleSummarize(
+      makeRequest({ ...validBody, memos: Array.from({ length: 1_000 }, () => memo) }),
+      env
+    );
+    const overLimit = await handleSummarize(
+      makeRequest({ ...validBody, memos: Array.from({ length: 1_001 }, () => memo) }),
+      env
+    );
+
+    expect(atLimit.status).toBe(200);
+    expect(overLimit.status).toBe(400);
+    expect(generateText).toHaveBeenCalledTimes(1);
+  });
+
+  it("境界値：conversationLogsは1,000件を受理し、1,001件はGeminiを呼ばず400", async () => {
+    vi.mocked(generateText).mockResolvedValue("要約");
+    const log = { date: "2026-08-01", turns: [] };
+
+    const atLimit = await handleSummarize(
+      makeRequest({ ...validBody, conversationLogs: Array.from({ length: 1_000 }, () => log) }),
+      env
+    );
+    const overLimit = await handleSummarize(
+      makeRequest({ ...validBody, conversationLogs: Array.from({ length: 1_001 }, () => log) }),
+      env
+    );
+
+    expect(atLimit.status).toBe(200);
+    expect(overLimit.status).toBe(400);
+    expect(generateText).toHaveBeenCalledTimes(1);
+  });
+
+  it("境界値：各conversationLogのturnsは5件を受理し、6件はGeminiを呼ばず400", async () => {
+    vi.mocked(generateText).mockResolvedValue("要約");
+    const turn = { question: "Q", answer: "A" };
+
+    const atLimit = await handleSummarize(
+      makeRequest({
+        ...validBody,
+        conversationLogs: [{ date: "2026-08-01", turns: Array.from({ length: 5 }, () => turn) }],
+      }),
+      env
+    );
+    const overLimit = await handleSummarize(
+      makeRequest({
+        ...validBody,
+        conversationLogs: [{ date: "2026-08-01", turns: Array.from({ length: 6 }, () => turn) }],
+      }),
+      env
+    );
+
+    expect(atLimit.status).toBe(200);
+    expect(overLimit.status).toBe(400);
+    expect(generateText).toHaveBeenCalledTimes(1);
+  });
+
+  it("境界値：平年と閏年の実在日を受理し、平年2月29日はGeminiを呼ばず400", async () => {
+    vi.mocked(generateText).mockResolvedValue("要約");
+
+    const commonYear = await handleSummarize(
+      makeRequest({ ...validBody, memos: [{ date: "2023-02-28", content: "平年" }] }),
+      env
+    );
+    const leapYear = await handleSummarize(
+      makeRequest({ ...validBody, memos: [{ date: "2024-02-29", content: "閏年" }] }),
+      env
+    );
+    const invalid = await handleSummarize(
+      makeRequest({ ...validBody, memos: [{ date: "2023-02-29", content: "存在しない日" }] }),
+      env
+    );
+
+    expect(commonYear.status).toBe(200);
+    expect(leapYear.status).toBe(200);
+    expect(invalid.status).toBe(400);
+    expect(generateText).toHaveBeenCalledTimes(2);
+  });
+
+  it("境界値：全文字列合計100,000コードポイントを受理し、100,001はGeminiを呼ばず400", async () => {
+    vi.mocked(generateText).mockResolvedValue("要約");
+    const fixedMemos = Array.from({ length: 4 }, (_, index) => ({
+      date: `2026-08-0${index + 1}`,
+      content: "M".repeat(20_000),
+    }));
+
+    const atLimit = await handleSummarize(
+      makeRequest({
+        bookTitle: "本",
+        memos: [...fixedMemos, { date: "2026-08-05", content: "M".repeat(19_949) }],
+        conversationLogs: [],
+      }),
+      env
+    );
+    const overLimit = await handleSummarize(
+      makeRequest({
+        bookTitle: "本",
+        memos: [...fixedMemos, { date: "2026-08-05", content: "M".repeat(19_950) }],
+        conversationLogs: [],
+      }),
+      env
+    );
+
+    expect(atLimit.status).toBe(200);
+    expect(overLimit.status).toBe(400);
+    expect(generateText).toHaveBeenCalledTimes(1);
+  });
+
   it("異常系：JSONパース不能なボディは400 invalid_requestを返す", async () => {
     const request = new Request("https://example.com/summarize", {
       method: "POST",
@@ -88,10 +199,19 @@ describe("POST /summarize", () => {
     expect(response.status).toBe(400);
   });
 
-  it("異常系：X-Shared-Secretなしは401 unauthorizedを返す", async () => {
-    const response = await handleSummarize(makeRequest(validBody, {}), env);
+  it.each([
+    ["欠落", {}],
+    ["不一致", { "X-Shared-Secret": "wrong-secret" }],
+  ])("異常系：X-Shared-Secretが%sの場合は本文を読まず401 unauthorizedを返す", async (_case, headers) => {
+    const request = makeRequest({}, headers);
+    const arrayBuffer = vi.spyOn(request, "arrayBuffer");
+
+    const response = await handleSummarize(request, env);
 
     expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({ error: "unauthorized" });
+    expect(arrayBuffer).not.toHaveBeenCalled();
+    expect(generateText).not.toHaveBeenCalled();
   });
 
   it("異常系：Geminiレート制限エラーは429 rate_limitedを返す", async () => {
