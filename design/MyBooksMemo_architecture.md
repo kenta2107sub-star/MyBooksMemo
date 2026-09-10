@@ -510,7 +510,7 @@ npm test
 npx wrangler deploy --dry-run
 ```
 
-上記は非破壊検証のみである。2026-09-10にCloudflare OAuth認証と`workers.dev`への初回公開を完了し、認証ヘッダーなしの公開`POST /chat`がWorker固有JSONのHTTP 401を返すことを確認した。Secretsは未登録のため、Workerはfail closedのままである。別の明示承認後に`wrangler secret put`を対話入力で実行する。各`secret put`はWorkerの新バージョンを公開する。公開されたWorkers URLはログや報告に残さず、iOS側の無視対象`Secrets.xcconfig`へ利用者が直接設定する。Geminiの実疎通と正しい共有シークレットでの応答確認は、Secrets登録後の別の承認ゲートで行う。
+上記は非破壊検証のみである。2026-09-10にCloudflare OAuth認証と`workers.dev`への初回公開を完了し、認証ヘッダーなしの公開`POST /chat`がWorker固有JSONのHTTP 401を返すことを確認した。その後、`GEMINI_API_KEY`と`WORKERS_SHARED_SECRET`をWrangler Secretsへ登録し、名前だけを確認した。各登録によりWorkerの新バージョンが公開された。公開されたWorkers URLとSecretsの値はログや報告に残さず、iOS側の無視対象`Secrets.xcconfig`へ利用者が直接設定する。Geminiの実疎通、正しい共有シークレットでの応答、iOS実機からの確認は別の承認ゲートで行う。
 
 ### 9.3 更新デプロイ
 

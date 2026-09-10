@@ -44,10 +44,10 @@
 | B-2 | パソコンにNode.js（`node`コマンドが使える環境）をインストール済み（`node -v` で確認） | [x] |
 | B-3 | `npx wrangler login` でCloudflareアカウントとの連携を完了済み | [x] |
 | B-4 | 明示承認後、秘密情報未設定で初回`npx wrangler deploy`を実行し、fail closedを維持済み | [x] |
-| B-5 | 別の明示承認後、`GEMINI_API_KEY`と`WORKERS_SHARED_SECRET`を対話入力で登録済み | [ ] |
-| B-6 | `wrangler secret list`で名前だけを確認し、Workers URLを無視対象`Secrets.xcconfig`へ直接転記済み | [ ] |
+| B-5 | 別の明示承認後、`GEMINI_API_KEY`と`WORKERS_SHARED_SECRET`を対話入力で登録済み | [x] |
+| B-6 | `wrangler secret list`で名前だけを確認済み。Workers URLを無視対象`Secrets.xcconfig`へ直接転記する作業は未完了 | [ ] |
 
-> ⚠️ **B-5が未完了だと、iOSアプリからのAI対話・要約生成がすべて失敗する。** 秘密値はCloudflare Workers側にだけ保存され、あとから見返すことができないため、設定した値は忘れないように別途メモしておくこと。
+> ⚠️ **B-6のURL転記とC-2・C-3が未完了だと、iOSアプリからのAI対話・要約生成がすべて失敗する。** 秘密値はCloudflare Workers側にだけ保存され、あとから見返すことができないため、設定した値は忘れないように別途メモしておくこと。
 
 ### 📱 C. Xcode側のシークレット設定の完了
 
@@ -172,7 +172,7 @@ npx wrangler deploy
 
 出力に含まれるWorkers URLはログや会話へ転載せず、利用者が安全な場所へ直接控える。
 
-2026-09-10にCloudflare OAuth認証と`workers.dev`への初回公開を完了した。認証ヘッダーなしの公開`POST /chat`はWorker固有JSONのHTTP 401を返し、Secrets未登録時のfail closedを確認している。Secrets登録とGeminiの実疎通は未完了であり、別の明示承認が必要である。
+2026-09-10にCloudflare OAuth認証と`workers.dev`への初回公開を完了した。認証ヘッダーなしの公開`POST /chat`はWorker固有JSONのHTTP 401を返し、認証ヘッダーがないリクエストを拒否することを確認している。
 
 ### 2.7 秘密の値をCloudflare Workersに登録する
 
@@ -191,9 +191,11 @@ npx wrangler secret list
 
 この確認ではSecretsの名前と種類だけを扱い、値は表示しない。
 
+2026-09-10に`GEMINI_API_KEY`と`WORKERS_SHARED_SECRET`を登録し、`wrangler secret list`で名前だけを確認した。各登録によりWorkerの新バージョンが公開されている。Geminiの正常応答とiOS実機からの疎通は未確認であり、別の明示承認が必要である。
+
 ### 2.8 公開後の疎通確認
 
-別の明示承認後、ダミーデータで`/chat`・`/summarize`・`/advice`を確認する。誤った共有シークレットで401、正しい値で正常応答になることを確認する。Workers URLと秘密値はコマンド履歴、ログ、報告に残さない。
+認証ヘッダーなしの公開`POST /chat`がWorker固有JSONのHTTP 401を返すことは確認済みである。別の明示承認後、ダミーデータで`/chat`・`/summarize`・`/advice`を確認する。誤った共有シークレットで401、正しい値で正常応答になることを確認する。Workers URLと秘密値はコマンド履歴、ログ、報告に残さない。
 
 ### うまくいかないとき
 - `npm ci` で大量のエラーが出る → `node -v` を再確認し、Node.jsのバージョンが20以上になっているか確認する
@@ -318,7 +320,7 @@ curl -i -X POST http://localhost:8787/chat \
 
 2026-09-02〜03の実測では、所有者iPhoneをUSB、CoreDevice、XcodeのRun destinationで安定して列挙できた。明示的なUnsupported OSエラーはなく、証明書のOUとProvisioning ProfileのTeamIdentifierの一致を確認したうえで、自動署名のbuild-for-testing、インストール、起動をPASSした。Team IDは記録しない。
 
-ローカル受入では、手入力による書籍登録、メモの再起動後の永続化、削除、オフライン時のエラー表示・クラッシュなし・データ維持、通信復旧後の再試行、USBとデバッガを外した通常起動をPASSした。Workersは公開済みで、認証ヘッダーなしの公開`POST /chat`がWorker固有JSONのHTTP 401を返すことを確認している。Secrets登録、Gemini実疎通、正しい共有シークレットでの応答・復旧確認は未完了であり、総合判定は`LIMITED`とする。
+ローカル受入では、手入力による書籍登録、メモの再起動後の永続化、削除、オフライン時のエラー表示・クラッシュなし・データ維持、通信復旧後の再試行、USBとデバッガを外した通常起動をPASSした。WorkersとSecretsは公開・登録済みで、認証ヘッダーなしの公開`POST /chat`がWorker固有JSONのHTTP 401を返すことを確認している。Gemini実疎通、正しい共有シークレットでの応答・復旧確認、iOS実機からの確認は未完了であり、総合判定は`LIMITED`とする。
 
 別の端末または将来の再インストールでは、まずUSB接続を優先し、iPhoneのロック解除、Macの信頼、Developer Mode、XcodeのRun destinationへの安定した列挙を確認する。初期対応ではペアリング解除や端末設定変更を行わず、安定接続後に明示的なUnsupported OSエラーが出た場合だけ、必要なXcodeを再判定する。
 

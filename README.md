@@ -39,7 +39,7 @@
 - **本・メモ・対話ログの削除**：本単位（メモ・対話ログ・要約もまとめて削除）、メモ単位（同日の対話ログも連動して削除）の2種類の粒度で削除できる
 - **Workers入力と認証**：AI機能は共有シークレットを本文の読取・解析より先に検証する。認証済みリクエストはUTF-8で512 KiB以下、文字列合計100,000 Unicodeコードポイント以下に制限し、上限や日付形式に合わない入力はGemini APIへ送信しない
 
-> 2026-09-10時点で、AI対話の送信済み往復の保存、NDL検索の先頭record固定、要約の送信順・無効表示、Gemini応答上限を実装し、回帰検証を完了しています。WorkersのOAuth認証と`workers.dev`への初回公開、認証ヘッダーなしの公開`POST /chat`がWorker固有JSONのHTTP 401を返すことを確認しました。Secrets登録とGeminiの実疎通、正しい共有シークレットでの応答確認は未完了です。
+> 2026-09-10時点で、AI対話の送信済み往復の保存、NDL検索の先頭record固定、要約の送信順・無効表示、Gemini応答上限を実装し、回帰検証を完了しています。WorkersのOAuth認証と`workers.dev`への初回公開、Secretsの登録と名前だけの確認、認証ヘッダーなしの公開`POST /chat`がWorker固有JSONのHTTP 401を返すことを確認しました。Geminiの実疎通、正しい共有シークレットでの応答、iOS実機からの疎通は未完了です。
 
 ---
 
@@ -112,9 +112,9 @@ open MyBooksMemo.xcodeproj
 # 下記の承認ゲートと実機手順に従う
 ```
 
-CloudflareのOAuth認証と初回公開は完了しています。Secrets登録とGeminiの本番疎通は外部状態を変更するため、それぞれの直前に明示承認を得ます。`wrangler secret put`は実行するたびにWorkerの新バージョンを公開します。
+CloudflareのOAuth認証と初回公開、Secretsの登録と名前だけの確認は完了しています。各`wrangler secret put`によりWorkerの新バージョンが公開されました。Geminiの本番疎通とiOS実機からの確認は別の明示承認後に行います。
 
-Bundle Identifierは、Appを`com.kenta2107substar.MyBooksMemo`、Testsを`com.kenta2107substar.MyBooksMemoTests`に設定済みです。証明書とProvisioning ProfileのTeam整合性を確認し、自動署名のbuild-for-testing、実機インストール、起動を完了しました。所有者iPhoneでは46件の自動テストと、手入力登録、メモ永続化、削除、オフライン時の安全な失敗と復旧、デバッガなし通常起動を確認済みです。Workersは公開済みですがSecrets登録とGeminiの実疎通が未完了のため、全体の判定は`LIMITED`です。
+Bundle Identifierは、Appを`com.kenta2107substar.MyBooksMemo`、Testsを`com.kenta2107substar.MyBooksMemoTests`に設定済みです。証明書とProvisioning ProfileのTeam整合性を確認し、自動署名のbuild-for-testing、実機インストール、起動を完了しました。所有者iPhoneでは46件の自動テストと、手入力登録、メモ永続化、削除、オフライン時の安全な失敗と復旧、デバッガなし通常起動を確認済みです。WorkersとSecretsは公開・登録済みですが、Geminiの実疎通とiOS実機からの確認が未完了のため、全体の判定は`LIMITED`です。
 
 ### 外部サービスの設定
 

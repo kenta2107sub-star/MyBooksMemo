@@ -14,7 +14,7 @@ Codex運用導入日：`2026-08-31`
 ## 現在のフェーズ
 
 ```
-Phase 8：Workers公開済み・Secrets登録承認待ち（総合LIMITED）
+Phase 8：Workers Secrets登録済み・iOS設定承認待ち（総合LIMITED）
 最終更新：2026-09-10
 ```
 
@@ -40,7 +40,7 @@ Phase 8：Workers公開済み・Secrets登録承認待ち（総合LIMITED）
 | Codex Security実行方式 | Plugin（2026-09-08 標準リポジトリスキャン完了） |
 | Cloudflare認証 | Wrangler OAuth認証済み（識別情報は記録しない） |
 | Workers公開状態 | workers.devへ公開済み。認証なしの公開リクエストで401を確認 |
-| Workers Secrets | 未登録 |
+| Workers Secrets | `GEMINI_API_KEY`・`WORKERS_SHARED_SECRET`を登録済み（値は記録しない） |
 | 夜間実行方式 | 未決定 |
 | `codex/*` Pushの継続許可 | 未回答 |
 | PR作成の継続許可 | 未回答 |
@@ -51,15 +51,15 @@ Phase 8：Workers公開済み・Secrets登録承認待ち（総合LIMITED）
 ## 設計書の状態
 
 - [x] `design/MyBooksMemo_requirements.md`（既存。Codex移行後の再確認前）
-- [x] `design/MyBooksMemo_architecture.md`（Workers公開・401・npm監査結果を同期し、2026-09-10ユーザー承認済み）
-- [x] `design/MyBooksMemo_setup.md`（Workers公開・401・Secrets未登録を同期し、2026-09-10ユーザー承認済み）
+- [x] `design/MyBooksMemo_architecture.md`（Workers公開・Secrets登録・401・npm監査結果を同期し、2026-09-10ユーザー承認済み）
+- [x] `design/MyBooksMemo_setup.md`（Workers公開・Secrets登録・401を同期し、2026-09-10ユーザー承認済み）
 - [x] `design/MyBooksMemo_business.md`（既存）
 - [x] `design/MyBooksMemo_basic_design.md`（既存。現行実装との再照合前）
 - [x] SwiftUI画面実装（既存）
 - [x] `design/MyBooksMemo_detailed_design.md`（現行実装・レビュー結果と同期し、2026-09-08ユーザー承認済み）
 - [x] 設計書整合性チェック（Phase 6）完了・ユーザー承認済み（2026-09-01）
 - [x] setup.md 内容の事実確認（Phase 7 Step 0・セットアップ指示前）完了（2026-09-01、公式情報と実測環境に同期・ユーザー承認済み）
-- [x] `README.md`（Workers公開後の現況を同期し、2026-09-10ユーザー承認済み）
+- [x] `README.md`（Workers公開・Secrets登録後の現況を同期し、2026-09-10ユーザー承認済み）
 
 ---
 
@@ -69,8 +69,8 @@ Phase 8：Workers公開済み・Secrets登録承認待ち（総合LIMITED）
 <!-- 「更新なし」ではなく「該当なしと判断（理由）」まで書く -->
 
 ```
-最終更新：2026-09-10（Workers公開・未認証401・npm監査結果を同期し、ユーザー承認済み）
-最終確認したタスク：Phase 8のWorkers公開後文書同期。Secrets登録とGemini実疎通は未完了として維持
+最終更新：2026-09-10（Workers公開・Secrets登録・未認証401・npm監査結果を同期し、ユーザー承認済み）
+最終確認したタスク：Phase 8のSecrets登録後文書同期。Gemini実疎通は未完了として維持
 ```
 
 | 日付 | 契機となった変更 | README の対応 |
@@ -84,6 +84,7 @@ Phase 8：Workers公開済み・Secrets登録承認待ち（総合LIMITED）
 | 2026-09-08 | Codex Security Low 2件の判断 | design-writerが要件・詳細設計を同期し、readme-writer → humanizer-jaでREADMEの機能・環境変数を更新。認証先行と静的共有値の残余リスクを反映し、文書差分はユーザー承認済み。製品コード実装へ進む |
 | 2026-09-08 | Phase 7品質ゲート完了後の現況同期 | design-writerがarchitecture・setup・detailed designを更新し、readme-writer → humanizer-jaでREADMEを部分更新。実機接続・署名・受入・品質結果と未公開範囲を同期し、文書差分はユーザー承認済み |
 | 2026-09-10 | Workers公開後の現況同期 | design-writerがarchitecture・setupを更新し、readme-writer → humanizer-jaでREADMEを部分更新。公開・未認証401・開発依存High 4件と本番依存0件を同期し、文書差分はユーザー承認済み |
+| 2026-09-10 | Workers Secrets登録後の現況同期 | design-writerがarchitecture・setupを更新し、readme-writer → humanizer-jaでREADMEを部分更新。Secret名2件の登録完了とGemini実疎通未確認を同期し、文書差分はユーザー承認済み |
 
 READMEドリフト検出：`有効`
 
@@ -131,7 +132,7 @@ READMEドリフト検出：`有効`
 ```
 ループ回数：4周（Codex移行後。上限：3周連続同一FAILでエスカレーション）
 
-テスト結果：   2026-09-10総合LIMITED。Workers公開と認証なしの公開`POST /chat`がWorker固有JSONの401を返すことはPASS。公開前の npm ci / typecheck / 全55テスト / Wrangler dry-runもPASS。iOSは2026-09-07の所有者iPhone 46件・失敗0と署名build-for-testingを回帰ベースラインとして維持。Secrets登録・正常応答・Gemini実疎通は未確認。`test_report.md`参照
+テスト結果：   2026-09-10総合LIMITED。Secrets登録前の npm ci / typecheck / 全55テスト / Wrangler dry-runをPASS。`GEMINI_API_KEY`・`WORKERS_SHARED_SECRET`の名前を登録後に確認し、認証なしの公開`POST /chat`が引き続きWorker固有JSONの401を返すこともPASS。iOSは2026-09-07の所有者iPhone 46件・失敗0と署名build-for-testingを回帰ベースラインとして維持。正常応答・Gemini実疎通は未確認。`test_report.md`参照
 レビュー結果： 2026-09-08認証先行修正後レビューPASS。必須修正0件、修正推奨0件、任意改善2件。`code_review_report.md`参照
 セキュリティ結果：2026-09-08 Codex Security Plugin標準再スキャンは要修正0件、受容済みLow 1件。2026-09-10のnpm監査は開発依存High 4件・本番依存0件。Cloudflare側の対応版採用時または2026-10-10までに再確認する。`security_report.md`参照
 ```
@@ -197,6 +198,8 @@ READMEドリフト検出：`有効`
 | 2026-09-10 | 承認済みのworkers.devアカウントサブドメイン登録後、既存Workerへ再デプロイした。npm ci・型検査・55テスト・Wrangler dry-runをPASSし、公開ルートで認証なしPOSTがWorker固有JSONの401を返すことを確認した。Secrets登録とGemini実疎通は未実施 |
 | 2026-09-10 | npm監査でHigh 4件を確認したが、Cloudflare開発ツール経由の`sharp 0.35.2`に限定され、本番依存は0件だった。最新Cloudflareツールも同版に依存するため強制修正・ダウングレード・手動overrideは行わず、対応版採用時または2026-10-10までに再確認する |
 | 2026-09-10 | Workers公開後のarchitecture・setup・README・テスト・セキュリティ報告を秘密値なしで同期し、文書差分はユーザー承認済み。追跡対象の更新は同じローカルコミットへ含める |
+| 2026-09-10 | ユーザー承認後、既存Workerへ`GEMINI_API_KEY`と`WORKERS_SHARED_SECRET`を値を出力せず登録した。共有シークレットは再利用できるようmacOSキーチェーンへ保存し、クリップボードから消去した。名前だけを確認し、認証なしの公開`POST /chat`が引き続きWorker固有JSONの401を返すことをPASSした。値・実URL・アカウント情報は記録しない |
+| 2026-09-10 | Workers Secrets登録後のarchitecture・setup・README差分をユーザー承認済み。ローカルコミットへ含める |
 
 ---
 
@@ -217,7 +220,8 @@ READMEドリフト検出：`有効`
 
 <!-- 解決できていない問題。空なら「なし」と記載 -->
 
-- Gemini Auth keyとWorkers Secretsは未登録。実値はCodexへ渡さず、登録時にユーザーが直接入力する
+- iOSの`Secrets.xcconfig`へ公開Workers URLと同じ共有シークレットを設定し、再署名・再インストールする必要がある
+- Gemini正常応答と実機からの実疎通は未確認
 
 ---
 
@@ -225,6 +229,6 @@ READMEドリフト検出：`有効`
 
 <!-- セッション再開時にここを読めばすぐに作業を再開できる状態にする -->
 
-1. Secrets登録が新しいWorkerバージョンを公開する影響を提示し、別の明示承認を得る
-2. ユーザーが値を直接入力してGEMINI_API_KEYとWORKERS_SHARED_SECRETを登録する
-3. 名前だけを確認後、iOS設定・再インストール・Gemini実疎通の別承認ゲートへ進む
+1. iOS設定・署名ビルド・実機再インストールの影響を提示し、別の明示承認を得る
+2. 承認後、キーチェーンの共有シークレットを値を出力せず`Secrets.xcconfig`へ反映する
+3. 実機でGemini正常応答、誤った共有シークレットの401、復旧後の再試行を確認する
