@@ -40,7 +40,7 @@
 | 外部AI連携 | Google Gemini API（`gemini-3.1-flash-lite`、`fetch`直叩き） | ユーザー確定事項（Phase 1実測により無料枠内で安定動作を確認済み）。Google公式SDKは追加せず、Workersランタイム標準の`fetch`でHTTPS呼び出しする（Node.js専用SDKはWorkersのEdgeランタイムとの相性リスクがあるため回避） |
 | 型バリデーション | 手書きの型ガード関数（`lib/validate.ts`相当） | エンドポイントが3つ・リクエストボディの型が単純なため、zod等の追加は必須ではない。ただし将来的にリクエスト構造が複雑化した場合はzod導入を検討してよい（Phase 1では見送り） |
 
-> 開発用依存関係は`workers/package-lock.json`を正とし、`npm ci`でWrangler、TypeScript、Vitest、Cloudflare Workers用テスト環境を再現する。実行時バンドルに不要なサーバーフレームワークは追加しない。
+> 開発用依存関係は`workers/package-lock.json`を正とし、`npm ci`でWrangler、TypeScript、Vitest、Cloudflare Workers用テスト環境を再現する。実行時バンドルに不要なサーバーフレームワークは追加しない。2026-09-10のnpm監査ではHigh 4件がCloudflare開発ツールチェーン（`@cloudflare/vitest-plugin`・`miniflare`・`wrangler`経由の`sharp`）に限定され、本番依存の監査結果は0件だった。強制修正、依存バージョンの後退、`sharp`の手動overrideは行わず、Cloudflare側が`sharp 0.35.4`以降を採用した時点、または2026-10-10までに再確認する。
 
 ---
 
@@ -510,7 +510,7 @@ npm test
 npx wrangler deploy --dry-run
 ```
 
-上記は非破壊検証のみである。明示承認後にCloudflare認証と初回`npx wrangler deploy`を行い、秘密情報が未登録の状態でfail closedになることを維持する。別の明示承認後に`wrangler secret put`を対話入力で実行する。各`secret put`はWorkerの新バージョンを公開する。公開されたWorkers URLはログや報告に残さず、iOS側の無視対象`Secrets.xcconfig`へ利用者が直接設定する。
+上記は非破壊検証のみである。2026-09-10にCloudflare OAuth認証と`workers.dev`への初回公開を完了し、認証ヘッダーなしの公開`POST /chat`がWorker固有JSONのHTTP 401を返すことを確認した。Secretsは未登録のため、Workerはfail closedのままである。別の明示承認後に`wrangler secret put`を対話入力で実行する。各`secret put`はWorkerの新バージョンを公開する。公開されたWorkers URLはログや報告に残さず、iOS側の無視対象`Secrets.xcconfig`へ利用者が直接設定する。Geminiの実疎通と正しい共有シークレットでの応答確認は、Secrets登録後の別の承認ゲートで行う。
 
 ### 9.3 更新デプロイ
 

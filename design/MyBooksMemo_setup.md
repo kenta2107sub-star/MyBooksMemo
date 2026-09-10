@@ -40,14 +40,14 @@
 
 | # | 確認項目 | 完了 |
 |---|---|---|
-| B-1 | Cloudflareのアカウントを作成済み（料金・カード要否は登録画面の最新表示を確認） | [ ] |
-| B-2 | パソコンにNode.js（`node`コマンドが使える環境）をインストール済み（`node -v` で確認） | [ ] |
-| B-3 | `npx wrangler login` でCloudflareアカウントとの連携を完了済み | [ ] |
-| B-4 | 明示承認後、秘密情報未設定で初回`npx wrangler deploy`を実行し、fail closedを維持済み | [ ] |
+| B-1 | Cloudflareのアカウントを作成済み（料金・カード要否は登録画面の最新表示を確認） | [x] |
+| B-2 | パソコンにNode.js（`node`コマンドが使える環境）をインストール済み（`node -v` で確認） | [x] |
+| B-3 | `npx wrangler login` でCloudflareアカウントとの連携を完了済み | [x] |
+| B-4 | 明示承認後、秘密情報未設定で初回`npx wrangler deploy`を実行し、fail closedを維持済み | [x] |
 | B-5 | 別の明示承認後、`GEMINI_API_KEY`と`WORKERS_SHARED_SECRET`を対話入力で登録済み | [ ] |
 | B-6 | `wrangler secret list`で名前だけを確認し、Workers URLを無視対象`Secrets.xcconfig`へ直接転記済み | [ ] |
 
-> ⚠️ **B-4・B-5が未完了だと、iOSアプリからのAI対話・要約生成がすべて失敗する。** この2つはCloudflare Workers側にだけ保存される値で、あとから見返すことができないため、設定した値は忘れないように別途メモしておくこと。
+> ⚠️ **B-5が未完了だと、iOSアプリからのAI対話・要約生成がすべて失敗する。** 秘密値はCloudflare Workers側にだけ保存され、あとから見返すことができないため、設定した値は忘れないように別途メモしておくこと。
 
 ### 📱 C. Xcode側のシークレット設定の完了
 
@@ -94,8 +94,8 @@ Xcode（アプリを作るためのアプリ）に、上で用意した値を教
    - 何のため：新しいAPIキーを1つ発行するため
 5. プロジェクトを選ぶ画面が出た場合は、初期状態で選ばれている「新しいプロジェクトを作成する」を選んだまま「Create API key」をクリックする
    - 特にこだわりがなければプロジェクト名は初期値のままでよい
-6. 数秒待つと、`AIza` から始まる文字列（APIキー）が画面に表示される
-   - 成功サイン：`AIzaSy...` のような文字列が画面に表示され、隣にコピー用のアイコンがある
+6. 数秒待つと、Gemini APIキーの文字列が画面に表示される
+   - 成功サイン：APIキーの文字列が表示され、隣にコピー用のアイコンがある
 7. コピーアイコンをクリックしてAPIキーをコピーし、メモ帳など安全な場所に一時的に控えておく
    - この値は、後述の「2. Cloudflareアカウント作成・Workersセットアップ手順」の中で使う（`GEMINI_API_KEY` として設定する）
 
@@ -172,6 +172,8 @@ npx wrangler deploy
 
 出力に含まれるWorkers URLはログや会話へ転載せず、利用者が安全な場所へ直接控える。
 
+2026-09-10にCloudflare OAuth認証と`workers.dev`への初回公開を完了した。認証ヘッダーなしの公開`POST /chat`はWorker固有JSONのHTTP 401を返し、Secrets未登録時のfail closedを確認している。Secrets登録とGeminiの実疎通は未完了であり、別の明示承認が必要である。
+
 ### 2.7 秘密の値をCloudflare Workersに登録する
 
 次の各コマンドはWorkerの新バージョンを公開する。初回デプロイとは別に明示承認を得てから、ローカル端末の対話入力で登録する。値は画面共有、ログ、Git、会話へ出さない。
@@ -222,8 +224,8 @@ CLOUDFLARE_WORKERS_URL = https:/$()/mybooksmemo-workers.example.workers.dev
 WORKERS_SHARED_SECRET = your-shared-secret-here
 ```
 
-- `mybooksmemo-workers.example.workers.dev` の部分を、手順2.7で控えた自分の実際のURL（`https://` を除いた部分）に書き換える
-- `your-shared-secret-here` の部分を、手順2.6で控えた64文字の合言葉に書き換える
+- `mybooksmemo-workers.example.workers.dev` の部分を、手順2.6で控えた自分の実際のURL（`https://` を除いた部分）に書き換える
+- `your-shared-secret-here` の部分を、手順2.7で決めた共有シークレットに書き換える
 
 > ⚠️ **URLの書き方に注意（`$()` を消さないこと）**
 > `.xcconfig` というファイルの中では、`//`（スラッシュ2つ）が「ここから先はコメント（メモ書き）です」という意味になってしまう決まりがある。そのため `https://...` とそのまま書くと、`https:` から後ろが全部無視されてしまう。
@@ -272,7 +274,7 @@ cp .dev.vars.example .dev.vars
 
 ```
 GEMINI_API_KEY=（手順1で発行したAPIキー）
-WORKERS_SHARED_SECRET=（手順2.6で決めた合言葉）
+WORKERS_SHARED_SECRET=（手順2.7で決めた合言葉）
 ```
 
 - 何のため：`wrangler dev` で手元にサーバーを起動したときに、本番と同じ値を使ってテストできるようにするため
@@ -316,7 +318,7 @@ curl -i -X POST http://localhost:8787/chat \
 
 2026-09-02〜03の実測では、所有者iPhoneをUSB、CoreDevice、XcodeのRun destinationで安定して列挙できた。明示的なUnsupported OSエラーはなく、証明書のOUとProvisioning ProfileのTeamIdentifierの一致を確認したうえで、自動署名のbuild-for-testing、インストール、起動をPASSした。Team IDは記録しない。
 
-ローカル受入では、手入力による書籍登録、メモの再起動後の永続化、削除、オフライン時のエラー表示・クラッシュなし・データ維持、通信復旧後の再試行、USBとデバッガを外した通常起動をPASSした。Workersは未公開のため、Gemini実疎通と公開Workersでの401・復旧確認は未完了であり、総合判定は`LIMITED`とする。
+ローカル受入では、手入力による書籍登録、メモの再起動後の永続化、削除、オフライン時のエラー表示・クラッシュなし・データ維持、通信復旧後の再試行、USBとデバッガを外した通常起動をPASSした。Workersは公開済みで、認証ヘッダーなしの公開`POST /chat`がWorker固有JSONのHTTP 401を返すことを確認している。Secrets登録、Gemini実疎通、正しい共有シークレットでの応答・復旧確認は未完了であり、総合判定は`LIMITED`とする。
 
 別の端末または将来の再インストールでは、まずUSB接続を優先し、iPhoneのロック解除、Macの信頼、Developer Mode、XcodeのRun destinationへの安定した列挙を確認する。初期対応ではペアリング解除や端末設定変更を行わず、安定接続後に明示的なUnsupported OSエラーが出た場合だけ、必要なXcodeを再判定する。
 
