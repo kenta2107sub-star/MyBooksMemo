@@ -479,7 +479,7 @@ enum Config {
 - AppターゲットのBundle Identifierは`com.kenta2107substar.MyBooksMemo`、Testsターゲットは`com.kenta2107substar.MyBooksMemoTests`とする
 - 有料Apple Developer ProgramのTeamを使い、XcodeのAutomatically manage signingでApp ID、端末登録、Provisioning Profileを管理する。Teamが複数表示された場合は選択を推測しない
 - 2026-09-02〜03の実測では、所有者iPhoneをUSB、CoreDevice、XcodeのRun destinationで安定して列挙できた。明示的なUnsupported OSエラーはなく、証明書のOUとProvisioning ProfileのTeamIdentifierの一致を確認したうえで、自動署名のbuild-for-testing、インストール、起動をPASSした。Team IDは記録しない
-- 実機受入では、手入力による書籍登録、メモの再起動後の永続化、削除、オフライン時のエラー表示・クラッシュなし・データ維持、通信復旧後の再試行、USBとデバッガを外した通常起動をPASSした。公開WorkersとGeminiの実疎通は未確認のため、総合判定は`LIMITED`のままとする
+- 実機受入では、手入力による書籍登録、メモの再起動後の永続化、削除、オフライン時のエラー表示・クラッシュなし・データ維持、通信復旧後の再試行、USBとデバッガを外した通常起動をPASSした。2026-09-10に公開`/chat`・`/summarize`・`/advice`が正しい共有シークレットでHTTP 200かつ非空応答、誤った共有シークレットでHTTP 401を返すことを確認した。iOS側の`Secrets.xcconfig`を設定し、署名ビルド、上書きインストール、デバッガなし起動をPASSした。実機画面でGemini応答の反映と通信失敗後の復旧・再試行を確認し、総合判定は`PASS`とする
 - 接続を再現するときはUSBを優先し、iPhoneのロック解除、Macの信頼、Developer Mode、XcodeのRun destinationへの列挙を確認する。初期対応ではペアリング解除や端末設定変更を行わず、安定接続後に明示的なUnsupported OSエラーが出た場合だけ必要なXcodeを再判定する
 - Team選択、App ID・Provisioning Profile・端末登録の作成または更新、Developer Mode・信頼設定の変更、署名ビルド・インストールは外部状態へ影響する。将来これらを変更する直前には、必要な値、影響、対象を示して明示承認を得る
 
@@ -510,7 +510,7 @@ npm test
 npx wrangler deploy --dry-run
 ```
 
-上記は非破壊検証のみである。2026-09-10にCloudflare OAuth認証と`workers.dev`への初回公開を完了し、認証ヘッダーなしの公開`POST /chat`がWorker固有JSONのHTTP 401を返すことを確認した。その後、`GEMINI_API_KEY`と`WORKERS_SHARED_SECRET`をWrangler Secretsへ登録し、名前だけを確認した。各登録によりWorkerの新バージョンが公開された。公開されたWorkers URLとSecretsの値はログや報告に残さず、iOS側の無視対象`Secrets.xcconfig`へ利用者が直接設定する。Geminiの実疎通、正しい共有シークレットでの応答、iOS実機からの確認は別の承認ゲートで行う。
+上記は非破壊検証のみである。2026-09-10にCloudflare OAuth認証と`workers.dev`への初回公開を完了し、認証ヘッダーなしの公開`POST /chat`がWorker固有JSONのHTTP 401を返すことを確認した。その後、新しいGemini Auth keyを作成して既存Workerの`GEMINI_API_KEY`を値非表示で差し替え、`WORKERS_SHARED_SECRET`とともにWrangler Secretsの名前一覧で確認した。今回のCLI標準入力経路では登録値不一致を再現したため、Cloudflare公式APIのSecret更新経路で同じ値を反映した。公開`/chat`・`/summarize`・`/advice`は正しい共有シークレットでHTTP 200かつ非空応答、誤った共有シークレットでHTTP 401を返した。iOS側の無視対象`Secrets.xcconfig`はURLと共有シークレットを設定済みで、署名ビルド、上書きインストール、デバッガなし起動を確認した。実機画面でGemini応答の反映と通信失敗後の復旧・再試行も確認した。Workers URLとSecretsの値はログや報告に残さない。総合判定は`PASS`とする。
 
 ### 9.3 更新デプロイ
 

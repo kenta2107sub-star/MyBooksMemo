@@ -45,9 +45,9 @@
 | B-3 | `npx wrangler login` でCloudflareアカウントとの連携を完了済み | [x] |
 | B-4 | 明示承認後、秘密情報未設定で初回`npx wrangler deploy`を実行し、fail closedを維持済み | [x] |
 | B-5 | 別の明示承認後、`GEMINI_API_KEY`と`WORKERS_SHARED_SECRET`を対話入力で登録済み | [x] |
-| B-6 | `wrangler secret list`で名前だけを確認済み。Workers URLを無視対象`Secrets.xcconfig`へ直接転記する作業は未完了 | [ ] |
+| B-6 | `wrangler secret list`で名前だけを確認し、Workers URLを無視対象`Secrets.xcconfig`へ直接転記済み | [x] |
 
-> ⚠️ **B-6のURL転記とC-2・C-3が未完了だと、iOSアプリからのAI対話・要約生成がすべて失敗する。** 秘密値はCloudflare Workers側にだけ保存され、あとから見返すことができないため、設定した値は忘れないように別途メモしておくこと。
+> ⚠️ **C-3の値がWorkers側と一致しないと、iOSアプリからのAI対話・要約生成がすべて失敗する。** 秘密値はCloudflare Workers側にだけ保存され、あとから見返すことができないため、設定した値は忘れないように別途メモしておくこと。
 
 ### 📱 C. Xcode側のシークレット設定の完了
 
@@ -55,10 +55,10 @@ Xcode（アプリを作るためのアプリ）に、上で用意した値を教
 
 | # | 確認項目 | 完了 |
 |---|---|---|
-| C-1 | `Secrets.xcconfig.example` を `Secrets.xcconfig` という名前でコピー済み | [ ] |
-| C-2 | `Secrets.xcconfig` に `CLOUDFLARE_WORKERS_URL`（B-6で控えたURL）を記入済み | [ ] |
-| C-3 | `Secrets.xcconfig` に `WORKERS_SHARED_SECRET`（B-5と同じ値）を記入済み | [ ] |
-| C-4 | XcodeのBuild Settingsで `Secrets.xcconfig` をDebug・Release両方に設定済み | [ ] |
+| C-1 | `Secrets.xcconfig.example` を `Secrets.xcconfig` という名前でコピー済み | [x] |
+| C-2 | `Secrets.xcconfig` に `CLOUDFLARE_WORKERS_URL`（B-6で控えたURL）を記入済み | [x] |
+| C-3 | `Secrets.xcconfig` に `WORKERS_SHARED_SECRET`（B-5と同じ値）を記入済み | [x] |
+| C-4 | XcodeのBuild Settingsで `Secrets.xcconfig` をDebug・Release両方に設定済み | [x] |
 
 > ⚠️ **C-3はB-5と一字一句同じ値にすること。** iOSアプリ側とCloudflare Workers側で合言葉が1文字でも違うと、すべてのAI関連リクエストが「認証エラー」で失敗する（画面には「AIとの通信に失敗しました」とだけ表示され、原因が合言葉の不一致だとは表示されない）。
 
@@ -191,11 +191,11 @@ npx wrangler secret list
 
 この確認ではSecretsの名前と種類だけを扱い、値は表示しない。
 
-2026-09-10に`GEMINI_API_KEY`と`WORKERS_SHARED_SECRET`を登録し、`wrangler secret list`で名前だけを確認した。各登録によりWorkerの新バージョンが公開されている。Geminiの正常応答とiOS実機からの疎通は未確認であり、別の明示承認が必要である。
+2026-09-10に`GEMINI_API_KEY`と`WORKERS_SHARED_SECRET`を登録し、`wrangler secret list`で名前だけを確認した。新しいGemini Auth keyを作成して既存Workerの`GEMINI_API_KEY`を値非表示で差し替えた。今回のCLI標準入力経路では登録値不一致を再現したため、Cloudflare公式APIのSecret更新経路で同じ値を反映した。各更新によりWorkerの新バージョンが公開されている。値は表示・記録しない。
 
 ### 2.8 公開後の疎通確認
 
-認証ヘッダーなしの公開`POST /chat`がWorker固有JSONのHTTP 401を返すことは確認済みである。別の明示承認後、ダミーデータで`/chat`・`/summarize`・`/advice`を確認する。誤った共有シークレットで401、正しい値で正常応答になることを確認する。Workers URLと秘密値はコマンド履歴、ログ、報告に残さない。
+公開`/chat`・`/summarize`・`/advice`は、正しい共有シークレットでHTTP 200かつ非空応答を返すことを確認した。誤った共有シークレットではHTTP 401の`unauthorized`を返す。所有者iPhoneの実機画面でGemini応答の反映と通信失敗後の復旧・再試行を確認した。Workers URLと秘密値はコマンド履歴、ログ、報告に残さない。
 
 ### うまくいかないとき
 - `npm ci` で大量のエラーが出る → `node -v` を再確認し、Node.jsのバージョンが20以上になっているか確認する
@@ -320,7 +320,7 @@ curl -i -X POST http://localhost:8787/chat \
 
 2026-09-02〜03の実測では、所有者iPhoneをUSB、CoreDevice、XcodeのRun destinationで安定して列挙できた。明示的なUnsupported OSエラーはなく、証明書のOUとProvisioning ProfileのTeamIdentifierの一致を確認したうえで、自動署名のbuild-for-testing、インストール、起動をPASSした。Team IDは記録しない。
 
-ローカル受入では、手入力による書籍登録、メモの再起動後の永続化、削除、オフライン時のエラー表示・クラッシュなし・データ維持、通信復旧後の再試行、USBとデバッガを外した通常起動をPASSした。WorkersとSecretsは公開・登録済みで、認証ヘッダーなしの公開`POST /chat`がWorker固有JSONのHTTP 401を返すことを確認している。Gemini実疎通、正しい共有シークレットでの応答・復旧確認、iOS実機からの確認は未完了であり、総合判定は`LIMITED`とする。
+ローカル受入では、手入力による書籍登録、メモの再起動後の永続化、削除、オフライン時のエラー表示・クラッシュなし・データ維持、通信復旧後の再試行、USBとデバッガを外した通常起動をPASSした。WorkersとSecretsは公開・登録済みで、公開`/chat`・`/summarize`・`/advice`は正しい共有シークレットでHTTP 200かつ非空応答、誤った共有シークレットでHTTP 401を返すことを確認している。iOS側の`Secrets.xcconfig`を設定し、署名ビルド、上書きインストール、デバッガなし起動をPASSした。実機画面でGemini応答の反映と通信失敗後の復旧・再試行を確認し、総合判定は`PASS`とする。
 
 別の端末または将来の再インストールでは、まずUSB接続を優先し、iPhoneのロック解除、Macの信頼、Developer Mode、XcodeのRun destinationへの安定した列挙を確認する。初期対応ではペアリング解除や端末設定変更を行わず、安定接続後に明示的なUnsupported OSエラーが出た場合だけ、必要なXcodeを再判定する。
 
@@ -339,7 +339,7 @@ Team選択、App ID・Provisioning Profile・端末登録の作成または更�
 4. XcodeのRun destinationで所有者iPhoneを選び、署名ビルド・インストール・起動を行う
 5. デバッガを外してホーム画面から再起動する
 
-実機受入は、書籍登録の1経路、メモ保存と再起動後の永続、削除、通信失敗時にクラッシュやデータ消失がなく復旧後に再試行できること、デバッガなしの通常起動を確認する。Gemini応答の反映と公開Workersでの401確認は、Workers公開・Secrets登録後の別の承認ゲートで確認する。
+実機受入では、書籍登録の1経路、メモ保存と再起動後の永続、削除、通信失敗時にクラッシュやデータ消失がなく復旧後に再試行できること、デバッガなしの通常起動、Gemini応答の反映、公開Workersでの401確認を完了した。
 
 ### 動作確認チェック
 
