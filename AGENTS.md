@@ -38,6 +38,17 @@ Codex CloudのLinux環境ではiOSビルド・テストを完了扱いにしな�
 `GEMINI_API_KEY`、`WORKERS_SHARED_SECRET`、`CLOUDFLARE_WORKERS_URL`の
 本番値をCodex Cloudやログへ渡さない。
 
+## Code Conventions
+
+- iOS側は`Views/`、`ViewModels/`、`Services/`、`Models/`の責務を分け、
+  非同期にUI状態を更新するViewModelは`@MainActor`へ隔離する
+- Workers側はTypeScriptのstrict設定を維持し、routeは`src/routes/`、
+  共通処理は`src/lib/`、テストは対象と同じ名前の`*.test.ts`へ置く
+- 通信失敗は共通のエラー型へ変換し、秘密情報を含むURL全体、header、
+  bodyをログへ出さない
+- XCTestとVitestは実ネットワークへ接続せず、stubまたはmockで
+  正常系と境界・エラー変換を検証する
+
 ## Codex Cloud taskの強制ゲート
 
 Codex Cloudで実行するtaskは、実作業やファイル変更の前に次を行う。

@@ -67,10 +67,37 @@ describe("POST /advice", () => {
     expect(response.status).toBe(400);
   });
 
-  it("異常系：X-Shared-Secretが不一致の場合401 unauthorizedを返す", async () => {
-    const response = await handleAdvice(makeRequest(validBody, { "X-Shared-Secret": "wrong" }), env);
+  it("境界値：conversationTurnsは5件を受理し、6件はGeminiを呼ばず400", async () => {
+    vi.mocked(generateText).mockResolvedValue("アドバイス");
+    const turn = { question: "Q", answer: "A" };
+
+    const atLimit = await handleAdvice(
+      makeRequest({ ...validBody, conversationTurns: Array.from({ length: 5 }, () => turn) }),
+      env
+    );
+    const overLimit = await handleAdvice(
+      makeRequest({ ...validBody, conversationTurns: Array.from({ length: 6 }, () => turn) }),
+      env
+    );
+
+    expect(atLimit.status).toBe(200);
+    expect(overLimit.status).toBe(400);
+    expect(generateText).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["欠落", {}],
+    ["不一致", { "X-Shared-Secret": "wrong-secret" }],
+  ])("異常系：X-Shared-Secretが%sの場合は本文を読まず401 unauthorizedを返す", async (_case, headers) => {
+    const request = makeRequest({}, headers);
+    const arrayBuffer = vi.spyOn(request, "arrayBuffer");
+
+    const response = await handleAdvice(request, env);
 
     expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({ error: "unauthorized" });
+    expect(arrayBuffer).not.toHaveBeenCalled();
+    expect(generateText).not.toHaveBeenCalled();
   });
 
   it("異常系：WORKERS_SHARED_SECRET未設定（空文字）の環境では常に401を返す", async () => {

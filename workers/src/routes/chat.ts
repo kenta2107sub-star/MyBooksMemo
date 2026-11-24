@@ -1,9 +1,9 @@
 // detailed_design.md 2-3・3-3：POST /chat ハンドラ（FR-04）。
-// validate → 認証(lib/auth) → プロンプト構築 → lib/gemini呼び出し → { question } を返す
+// 認証(lib/auth) → validate → プロンプト構築 → lib/gemini呼び出し → { question } を返す
 
 import type { ChatRequest, ChatResponse, Env, ErrorResponse } from "../types";
 import { isAuthorized } from "../lib/auth";
-import { isChatRequest } from "../lib/validate";
+import { isChatRequest, parseJsonBody } from "../lib/validate";
 import { GeminiRateLimitedError, generateText } from "../lib/gemini";
 
 function jsonResponse(body: unknown, status: number): Response {
@@ -37,19 +37,17 @@ function buildPrompt(body: ChatRequest): string {
 }
 
 export async function handleChat(request: Request, env: Env): Promise<Response> {
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
+  if (!isAuthorized(request, env)) {
+    return errorResponse("unauthorized", "X-Shared-Secretが一致しません", 401);
+  }
+
+  const body = await parseJsonBody(request);
+  if (body === undefined) {
     return errorResponse("invalid_request", "リクエストボディがJSONとしてパースできません", 400);
   }
 
   if (!isChatRequest(body)) {
     return errorResponse("invalid_request", "リクエストボディの形式が不正です", 400);
-  }
-
-  if (!isAuthorized(request, env)) {
-    return errorResponse("unauthorized", "X-Shared-Secretが一致しません", 401);
   }
 
   try {

@@ -52,6 +52,12 @@ struct SummaryView: View {
             actionButton
                 .padding(.top, BookTheme.spacingUnit)
 
+            if !viewModel.canGenerate {
+                Text("メモを記録すると要約を作成できます")
+                    .font(BookTheme.caption)
+                    .foregroundStyle(BookTheme.textSecondary)
+            }
+
             failureBanner
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -138,8 +144,8 @@ struct SummaryView: View {
                 Text(viewModel.isGenerating ? "生成中…" : viewModel.buttonLabel)
             }
         }
-        .buttonStyle(PrimaryButtonStyle(isDisabled: viewModel.isGenerating))
-        .disabled(viewModel.isGenerating)
+        .buttonStyle(PrimaryButtonStyle(isDisabled: !viewModel.canGenerate || viewModel.isGenerating))
+        .disabled(!viewModel.canGenerate || viewModel.isGenerating)
     }
 }
 

@@ -40,14 +40,14 @@
 
 | # | 確認項目 | 完了 |
 |---|---|---|
-| B-1 | Cloudflareのアカウントを作成済み（クレジットカード登録は不要） | [ ] |
-| B-2 | パソコンにNode.js（`node`コマンドが使える環境）をインストール済み（`node -v` で確認） | [ ] |
-| B-3 | `npx wrangler login` でCloudflareアカウントとの連携を完了済み | [ ] |
-| B-4 | `npx wrangler secret put GEMINI_API_KEY` でGemini APIキーを公開用サーバーに設定済み | [ ] |
-| B-5 | `npx wrangler secret put WORKERS_SHARED_SECRET` で合言葉を公開用サーバーに設定済み | [ ] |
-| B-6 | `npx wrangler deploy` で初回公開を完了し、発行された `*.workers.dev` のURLを控え済み | [ ] |
+| B-1 | Cloudflareのアカウントを作成済み（料金・カード要否は登録画面の最新表示を確認） | [x] |
+| B-2 | パソコンにNode.js（`node`コマンドが使える環境）をインストール済み（`node -v` で確認） | [x] |
+| B-3 | `npx wrangler login` でCloudflareアカウントとの連携を完了済み | [x] |
+| B-4 | 明示承認後、秘密情報未設定で初回`npx wrangler deploy`を実行し、fail closedを維持済み | [x] |
+| B-5 | 別の明示承認後、`GEMINI_API_KEY`と`WORKERS_SHARED_SECRET`を対話入力で登録済み | [x] |
+| B-6 | `wrangler secret list`で名前だけを確認し、Workers URLを無視対象`Secrets.xcconfig`へ直接転記済み | [x] |
 
-> ⚠️ **B-4・B-5が未完了だと、iOSアプリからのAI対話・要約生成がすべて失敗する。** この2つはCloudflare Workers側にだけ保存される値で、あとから見返すことができないため、設定した値は忘れないように別途メモしておくこと。
+> ⚠️ **C-3の値がWorkers側と一致しないと、iOSアプリからのAI対話・要約生成がすべて失敗する。** 秘密値はCloudflare Workers側にだけ保存され、あとから見返すことができないため、設定した値は忘れないように別途メモしておくこと。
 
 ### 📱 C. Xcode側のシークレット設定の完了
 
@@ -55,10 +55,10 @@ Xcode（アプリを作るためのアプリ）に、上で用意した値を教
 
 | # | 確認項目 | 完了 |
 |---|---|---|
-| C-1 | `Secrets.xcconfig.example` を `Secrets.xcconfig` という名前でコピー済み | [ ] |
-| C-2 | `Secrets.xcconfig` に `CLOUDFLARE_WORKERS_URL`（B-6で控えたURL）を記入済み | [ ] |
-| C-3 | `Secrets.xcconfig` に `WORKERS_SHARED_SECRET`（B-5と同じ値）を記入済み | [ ] |
-| C-4 | XcodeのBuild Settingsで `Secrets.xcconfig` をDebug・Release両方に設定済み | [ ] |
+| C-1 | `Secrets.xcconfig.example` を `Secrets.xcconfig` という名前でコピー済み | [x] |
+| C-2 | `Secrets.xcconfig` に `CLOUDFLARE_WORKERS_URL`（B-6で控えたURL）を記入済み | [x] |
+| C-3 | `Secrets.xcconfig` に `WORKERS_SHARED_SECRET`（B-5と同じ値）を記入済み | [x] |
+| C-4 | XcodeのBuild Settingsで `Secrets.xcconfig` をDebug・Release両方に設定済み | [x] |
 
 > ⚠️ **C-3はB-5と一字一句同じ値にすること。** iOSアプリ側とCloudflare Workers側で合言葉が1文字でも違うと、すべてのAI関連リクエストが「認証エラー」で失敗する（画面には「AIとの通信に失敗しました」とだけ表示され、原因が合言葉の不一致だとは表示されない）。
 
@@ -66,8 +66,8 @@ Xcode（アプリを作るためのアプリ）に、上で用意した値を教
 
 | # | 確認項目 | 完了 |
 |---|---|---|
-| D-1 | Xcode 15.2がインストール済み（Xcode本体のバージョンは `Xcode` メニュー →「Xcodeについて」で確認できる） | [ ] |
-| D-2 | `cd workers && npm install` が正常に完了済み（実装（コード作成）が完了したあとに実施） | [ ] |
+| D-1 | Simulator検証で使うXcodeとiOS SDKを実測済み。所有者iPhoneがXcodeのRun destinationに安定して列挙される接続を確認済み | [ ] |
+| D-2 | `cd workers && npm ci` が正常に完了済み | [ ] |
 | D-3 | `npx wrangler dev` で手元の中継サーバーが起動することを確認済み | [ ] |
 | D-4 | Xcodeでのビルド・シミュレータ起動を確認済み | [ ] |
 
@@ -75,8 +75,7 @@ Xcode（アプリを作るためのアプリ）に、上で用意した値を教
 
 ### ✅ 着手OKの条件
 
-**上記 A〜C の全項目が完了してから、実装（コードを書くフェーズ）を開始すること。**
-**D（ローカルでの動作確認）は、実装したコードが完成した時点で改めて実施する。**
+**製品コードの修正は設計承認後に行う。Cloudflare公開、Secrets登録、Bundle Identifier・Team変更、実機インストールは、それぞれの直前に値・影響・コマンドを示して明示承認を得る。**
 
 ---
 
@@ -84,11 +83,7 @@ Xcode（アプリを作るためのアプリ）に、上で用意した値を教
 
 何のためにやるか：このアプリのAI対話・要約機能は、Googleの「Gemini」というAIを使う。そのAIを呼び出すための“合言葉”（APIキー）をここで発行する。
 
-> ⚠️ **Phase 1で発行したAPIキーがあっても、流用せずこの手順で新しく発行し直すこと**
-> Googleは2026年にAPIキーの仕様を変更しており、アプリ・API側の制限を設定していない「標準キー（Standard key）」は2026年6月19日以降すでにGemini APIから拒否されるようになっており、2026年9月には制限付きの標準キーも含めてすべて拒否される予定になっている（出典：`https://ai.google.dev/gemini-api/docs/api-key`）。
-> Phase 1の技術調査時に発行したキーはこの標準キーに該当する可能性があるため、そのまま流用せず、以下の手順で必ず新しく発行し直すこと。
-> 現在（2026年8月時点）Google AI Studioで新規発行されるAPIキーは自動的に、Google Cloudのサービスアカウントに紐づく「Auth key」というより安全な方式になる。Auth keyかどうかを自分で見分けたり、キーの種類を選んだりする必要はなく、この手順どおりに新規発行するだけでよい。
-> 古いキーがGoogle AI Studioの管理画面（`https://aistudio.google.com/apikey`）に残っている場合は、使われなくなったキーとして削除しておいてよい（削除しなくても新しいキーの動作に支障はない）。
+> Google AI Studioで新しいAuth keyを作成し、Workers側だけに登録する。制限のない旧Standard keyは流用しない。キーの現行仕様は実行直前にGoogle公式文書（`https://ai.google.dev/gemini-api/docs/api-key`）で確認する。値は会話、Git、ログへ出さない。
 
 1. ブラウザ（Safari・Chromeなど）で `https://aistudio.google.com/apikey` を開く
    - 何のため：Gemini APIキーの発行・管理画面を開くため
@@ -99,8 +94,8 @@ Xcode（アプリを作るためのアプリ）に、上で用意した値を教
    - 何のため：新しいAPIキーを1つ発行するため
 5. プロジェクトを選ぶ画面が出た場合は、初期状態で選ばれている「新しいプロジェクトを作成する」を選んだまま「Create API key」をクリックする
    - 特にこだわりがなければプロジェクト名は初期値のままでよい
-6. 数秒待つと、`AIza` から始まる文字列（APIキー）が画面に表示される
-   - 成功サイン：`AIzaSy...` のような文字列が画面に表示され、隣にコピー用のアイコンがある
+6. 数秒待つと、Gemini APIキーの文字列が画面に表示される
+   - 成功サイン：APIキーの文字列が表示され、隣にコピー用のアイコンがある
 7. コピーアイコンをクリックしてAPIキーをコピーし、メモ帳など安全な場所に一時的に控えておく
    - この値は、後述の「2. Cloudflareアカウント作成・Workersセットアップ手順」の中で使う（`GEMINI_API_KEY` として設定する）
 
@@ -119,7 +114,7 @@ Xcode（アプリを作るためのアプリ）に、上で用意した値を教
 1. ブラウザで `https://dash.cloudflare.com/sign-up` を開く
    - 何のため：Cloudflareのアカウントを新規作成するため
 2. メールアドレスとパスワードを入力し、「Sign Up」（サインアップ）ボタンをクリックする
-   - **クレジットカードの登録は不要**。このあと使うWorkersの無料プランは、カード登録なしでそのまま使い始められる
+   - 料金・カード要否は変更され得る。アカウント作成直前に登録画面とCloudflare公式のWorkers料金ページを確認する
 3. 届いた確認メールのリンクをクリックしてメールアドレスを認証する
    - 成功サイン：Cloudflareのダッシュボード（管理画面のトップページ）が表示される
 
@@ -151,7 +146,7 @@ cd {プロジェクトのパス}/MyBooksMemo/workers
 ### 2.4 依存パッケージのインストール
 
 ```bash
-npm install
+npm ci
 ```
 
 - 何のため：`wrangler` などこのプロジェクトに必要な部品一式をダウンロードするため
@@ -167,43 +162,43 @@ npx wrangler login
 - 実行するとブラウザが自動的に開き、Cloudflareの許可画面が表示される。「Allow」（許可する）をクリックする
 - 成功サイン：ブラウザに「Successfully authorized」（認証に成功しました）のような画面が出て、ターミナルにも「Successfully logged in」と表示される
 
-### 2.6 秘密の値をCloudflare Workersに登録する
+### 2.6 秘密情報未設定での初回公開
 
-以下の2つのコマンドは、それぞれ実行すると「Enter a secret value:」（値を入力してください）と聞かれるので、値を貼り付けてEnterキーを押す（貼り付けた文字はターミナル上には表示されないが、正常な動作）。
-
-```bash
-npx wrangler secret put GEMINI_API_KEY
-```
-- 値の入力欄が出たら、手順1で控えた `AIzaSy...` のAPIキーを貼り付けてEnter
-- 成功サイン：「✨ Success! Uploaded secret GEMINI_API_KEY」のように表示される
-
-合言葉（共有シークレット）は、以下のコマンドでランダムな文字列を生成してから登録する。
-
-```bash
-openssl rand -hex 32
-```
-- 何のため：iOSアプリとCloudflare Workersだけが知っている“合言葉”を、推測されにくいランダムな文字列として作るため
-- 実行すると `3f9a1c...`（64文字の英数字）のような文字列が表示されるので、そのままコピーする
-- ⚠️ **この文字列は後で「3. Xcode側のシークレット設定手順」でも同じ値を使うので、必ずメモ帳などに控えておくこと**
-
-```bash
-npx wrangler secret put WORKERS_SHARED_SECRET
-```
-- 値の入力欄が出たら、直前に生成・控えた64文字の文字列を貼り付けてEnter
-- 成功サイン：「✨ Success! Uploaded secret WORKERS_SHARED_SECRET」のように表示される
-
-### 2.7 初回公開（デプロイ）
+この操作はWorkerを外部公開する。実行直前に対象アカウント、Worker名、影響、実行コマンドを示して明示承認を得る。SecretsがないリクエストはGemini APIを呼び出さず失敗する（fail closed）。
 
 ```bash
 npx wrangler deploy
 ```
 
-- 何のため：ここまで用意したサーバー用のコードを、インターネット上に公開して実際に使える状態にするため
-- 成功サイン：ターミナルの最後の方に `https://mybooksmemo-workers.{自分のアカウント名}.workers.dev` のようなURLが表示される
-- ⚠️ **このURLは必ず控えておくこと。** 次の「3. Xcode側のシークレット設定手順」の `CLOUDFLARE_WORKERS_URL` として使う
+出力に含まれるWorkers URLはログや会話へ転載せず、利用者が安全な場所へ直接控える。
+
+2026-09-10にCloudflare OAuth認証と`workers.dev`への初回公開を完了した。認証ヘッダーなしの公開`POST /chat`はWorker固有JSONのHTTP 401を返し、認証ヘッダーがないリクエストを拒否することを確認している。
+
+### 2.7 秘密の値をCloudflare Workersに登録する
+
+次の各コマンドはWorkerの新バージョンを公開する。初回デプロイとは別に明示承認を得てから、ローカル端末の対話入力で登録する。値は画面共有、ログ、Git、会話へ出さない。
+
+```bash
+npx wrangler secret put GEMINI_API_KEY
+npx wrangler secret put WORKERS_SHARED_SECRET
+```
+
+GeminiのAuth keyはGoogle AI Studioから直接入力する。共有シークレットはパスワードマネージャー等で安全に生成し、WorkersとiOSに同じ値を直接入力する。
+
+```bash
+npx wrangler secret list
+```
+
+この確認ではSecretsの名前と種類だけを扱い、値は表示しない。
+
+2026-09-10に`GEMINI_API_KEY`と`WORKERS_SHARED_SECRET`を登録し、`wrangler secret list`で名前だけを確認した。新しいGemini Auth keyを作成して既存Workerの`GEMINI_API_KEY`を値非表示で差し替えた。今回のCLI標準入力経路では登録値不一致を再現したため、Cloudflare公式APIのSecret更新経路で同じ値を反映した。各更新によりWorkerの新バージョンが公開されている。値は表示・記録しない。
+
+### 2.8 公開後の疎通確認
+
+公開`/chat`・`/summarize`・`/advice`は、正しい共有シークレットでHTTP 200かつ非空応答を返すことを確認した。誤った共有シークレットではHTTP 401の`unauthorized`を返す。所有者iPhoneの実機画面でGemini応答の反映と通信失敗後の復旧・再試行を確認した。Workers URLと秘密値はコマンド履歴、ログ、報告に残さない。
 
 ### うまくいかないとき
-- `npm install` で大量のエラーが出る → `node -v` を再確認し、Node.jsのバージョンが20以上になっているか確認する
+- `npm ci` で大量のエラーが出る → `node -v` を再確認し、Node.jsのバージョンが20以上になっているか確認する
 - `wrangler login` でブラウザが開かない → ターミナルに表示されたURLを手動でコピーしてブラウザに貼り付けて開く
 - `wrangler deploy` で「Unauthorized」と出る → `npx wrangler login` を実行し直す
 - 秘密の値を間違えて登録してしまった → 同じ `wrangler secret put` コマンドをもう一度実行すれば上書きできる（削除してから登録し直す必要はない）
@@ -231,8 +226,8 @@ CLOUDFLARE_WORKERS_URL = https:/$()/mybooksmemo-workers.example.workers.dev
 WORKERS_SHARED_SECRET = your-shared-secret-here
 ```
 
-- `mybooksmemo-workers.example.workers.dev` の部分を、手順2.7で控えた自分の実際のURL（`https://` を除いた部分）に書き換える
-- `your-shared-secret-here` の部分を、手順2.6で控えた64文字の合言葉に書き換える
+- `mybooksmemo-workers.example.workers.dev` の部分を、手順2.6で控えた自分の実際のURL（`https://` を除いた部分）に書き換える
+- `your-shared-secret-here` の部分を、手順2.7で決めた共有シークレットに書き換える
 
 > ⚠️ **URLの書き方に注意（`$()` を消さないこと）**
 > `.xcconfig` というファイルの中では、`//`（スラッシュ2つ）が「ここから先はコメント（メモ書き）です」という意味になってしまう決まりがある。そのため `https://...` とそのまま書くと、`https:` から後ろが全部無視されてしまう。
@@ -281,7 +276,7 @@ cp .dev.vars.example .dev.vars
 
 ```
 GEMINI_API_KEY=（手順1で発行したAPIキー）
-WORKERS_SHARED_SECRET=（手順2.6で決めた合言葉）
+WORKERS_SHARED_SECRET=（手順2.7で決めた合言葉）
 ```
 
 - 何のため：`wrangler dev` で手元にサーバーを起動したときに、本番と同じ値を使ってテストできるようにするため
@@ -320,6 +315,31 @@ curl -i -X POST http://localhost:8787/chat \
 - `curl` の結果が返ってこない・接続エラーになる → `wrangler dev` を実行しているターミナルがまだ起動したままか確認する（`Ctrl + C` で誤って止めていないか）
 - Xcodeでビルドエラーが出る → エラーメッセージの中に `Secrets` や `CloudflareWorkersURL` という文言がないか確認する。あれば「3. Xcode側のシークレット設定手順」に抜けがある
 - シミュレータが起動するがアプリがクラッシュする → Xcode下部のログ（コンソール）に `Config.swift` や `Info.plist` に関するエラーが出ていないか確認する
+
+### 4.3 所有者iPhoneへの署名ビルド・インストール
+
+2026-09-02〜03の実測では、所有者iPhoneをUSB、CoreDevice、XcodeのRun destinationで安定して列挙できた。明示的なUnsupported OSエラーはなく、証明書のOUとProvisioning ProfileのTeamIdentifierの一致を確認したうえで、自動署名のbuild-for-testing、インストール、起動をPASSした。Team IDは記録しない。
+
+ローカル受入では、手入力による書籍登録、メモの再起動後の永続化、削除、オフライン時のエラー表示・クラッシュなし・データ維持、通信復旧後の再試行、USBとデバッガを外した通常起動をPASSした。WorkersとSecretsは公開・登録済みで、公開`/chat`・`/summarize`・`/advice`は正しい共有シークレットでHTTP 200かつ非空応答、誤った共有シークレットでHTTP 401を返すことを確認している。iOS側の`Secrets.xcconfig`を設定し、署名ビルド、上書きインストール、デバッガなし起動をPASSした。実機画面でGemini応答の反映と通信失敗後の復旧・再試行を確認し、総合判定は`PASS`とする。
+
+別の端末または将来の再インストールでは、まずUSB接続を優先し、iPhoneのロック解除、Macの信頼、Developer Mode、XcodeのRun destinationへの安定した列挙を確認する。初期対応ではペアリング解除や端末設定変更を行わず、安定接続後に明示的なUnsupported OSエラーが出た場合だけ、必要なXcodeを再判定する。
+
+Team選択、App ID・Provisioning Profile・端末登録の作成または更新、Developer Mode・信頼設定の変更、署名ビルド・インストールを行う直前には、次の影響を整理して明示承認を得る。
+
+- 有料Apple Developer ProgramのTeam選択
+- App IDとProvisioning Profileの作成・更新
+- iPhoneのDeveloper Mode、端末登録、信頼設定
+- Xcodeによる署名ビルド、インストール、起動
+
+承認後の手順：
+
+1. XcodeのSigning & CapabilitiesでAutomatically manage signingを有効にし、明示された有料Teamを選択する。複数の有料Teamが表示された場合は停止する
+2. 承認済みBundle IdentifierがAppとTestsの両方で一致していることを確認する。App IDを登録できなければ別名を推測せずBLOCKEDとする
+3. iPhoneをUSBまたは信頼済みワイヤレス接続し、Macを信頼する。iPhoneでDeveloper Modeを有効にする
+4. XcodeのRun destinationで所有者iPhoneを選び、署名ビルド・インストール・起動を行う
+5. デバッガを外してホーム画面から再起動する
+
+実機受入では、書籍登録の1経路、メモ保存と再起動後の永続、削除、通信失敗時にクラッシュやデータ消失がなく復旧後に再試行できること、デバッガなしの通常起動、Gemini応答の反映、公開Workersでの401確認を完了した。
 
 ### 動作確認チェック
 

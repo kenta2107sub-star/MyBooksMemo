@@ -1,9 +1,9 @@
 // detailed_design.md 2-3・3-3：POST /summarize ハンドラ（FR-05）。
-// validate → 認証(lib/auth) → プロンプト構築 → lib/gemini呼び出し → { summary } を返す
+// 認証(lib/auth) → validate → プロンプト構築 → lib/gemini呼び出し → { summary } を返す
 
 import type { Env, ErrorResponse, SummarizeRequest, SummarizeResponse } from "../types";
 import { isAuthorized } from "../lib/auth";
-import { isSummarizeRequest } from "../lib/validate";
+import { isSummarizeRequest, parseJsonBody } from "../lib/validate";
 import { GeminiRateLimitedError, generateText } from "../lib/gemini";
 
 function jsonResponse(body: unknown, status: number): Response {
@@ -47,19 +47,17 @@ function buildPrompt(body: SummarizeRequest): string {
 }
 
 export async function handleSummarize(request: Request, env: Env): Promise<Response> {
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
+  if (!isAuthorized(request, env)) {
+    return errorResponse("unauthorized", "X-Shared-Secretが一致しません", 401);
+  }
+
+  const body = await parseJsonBody(request);
+  if (body === undefined) {
     return errorResponse("invalid_request", "リクエストボディがJSONとしてパースできません", 400);
   }
 
   if (!isSummarizeRequest(body)) {
     return errorResponse("invalid_request", "リクエストボディの形式が不正です", 400);
-  }
-
-  if (!isAuthorized(request, env)) {
-    return errorResponse("unauthorized", "X-Shared-Secretが一致しません", 401);
   }
 
   try {

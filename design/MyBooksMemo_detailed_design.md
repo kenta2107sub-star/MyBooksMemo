@@ -253,8 +253,8 @@ struct MyBooksMemoApp: App {
 ```
 1. リクエストヘッダー X-Shared-Secret の値を取得する
 2. 環境変数 WORKERS_SHARED_SECRET と比較する
-3. 不一致 or ヘッダー欠落 → Gemini APIを呼び出さずHTTP 401を返す
-4. 一致 → 各routes/*.tsの処理に進む
+3. 不一致 or ヘッダー欠落 → 本文を読まず、JSON解析・型/上限検証・Gemini API呼び出しを行わずHTTP 401を返す
+4. 一致 → 各routes/*.tsで本文を読み取り、JSON解析・型/上限検証に進む
 ```
 
 **エラーレスポンスの統一フォーマット**
@@ -270,12 +270,21 @@ struct MyBooksMemoApp: App {
 
 | HTTPステータス | `error`値 | 発生条件 | 対応するiOS側`APIError` |
 |---|---|---|---|
-| 400 | `invalid_request` | `lib/validate.ts`のリクエストボディ検証失敗（必須フィールド欠落・型不一致） | `.decodingError`相当（4-1参照） |
-| 401 | `unauthorized` | `X-Shared-Secret`不一致（FR-06共通ルールNo.6） | `.unauthorized` |
+| 400 | `invalid_request` | `lib/validate.ts`のリクエストボディ検証失敗（JSON構文不正、本文・文字列・配列の上限超過、必須フィールド欠落、型不一致、不正な日付） | `.decodingError`相当（4-1参照） |
+| 401 | `unauthorized` | `X-Shared-Secret`の欠落または不一致。本文読取・JSON解析・型/上限検証より先に返す（FR-06共通ルールNo.6） | `.unauthorized` |
 | 429 | `rate_limited` | Gemini API側の429を透過 | `.rateLimited` |
-| 500 | `generation_failed` | Gemini API呼び出し失敗・タイムアウト・レスポンス形式異常（NF-03：空文字・極端に長い等） | `.serverError` |
+| 500 | `generation_failed` | Gemini API呼び出し失敗・タイムアウト・レスポンス形式異常（前後空白除去後に空文字、またはUnicodeコードポイント20,000個超過） | `.serverError` |
 
-> NF-04「HTTPステータスコード・スタックトレース等の技術的情報は画面に表示しない」に従い、iOS側は`error`・`message`の値をそのまま画面に出さず、HTTPステータスコードから`APIError`（4-1）に変換した上で、各FR・各画面の異常系メッセージ（basic_design.md Section 7 ERR-09〜17）に一律マッピングする。`message`はXcodeコンソールログにのみ出力してよい（FR-06共通ルールNo.5。ただしメモ本文・対話内容そのものは含めない）。
+> NF-04に従い、iOS側は`error`・`message`の値を画面にもログにも出さない。HTTPステータスコードから`APIError`（4-1）に変換し、各FR・各画面の異常系メッセージ（basic_design.md Section 7 ERR-09〜17）に一律マッピングする。運用ログはタイムスタンプ・`URL.path`・HTTPステータスコードだけとする。
+
+**共通入力制約**（NF-03）
+
+- ハンドラは`isAuthorized`で共有シークレットを検証してから、本文の読取・JSON構文・型・上限を検証する。ヘッダー欠落または不一致では本文を読まず、既存形式の`unauthorized`（401）を返す
+- 認証済みリクエストの本文はUTF-8で512 KiB以下。`Content-Length`がある場合は本文読取前に判定し、`arrayBuffer()`で読んだ実本文の`byteLength`も判定する
+- 文字数はUnicodeコードポイントで数える。`bookTitle`は1〜500、`memoContent`・`memo.content`・`turn.question`・`turn.answer`は各20,000以下。既存の非空判定は`trim()`後に行い、`/chat`・`/advice`の`memoContent`だけを非空必須とする
+- `/chat`の`conversationHistory`と`/advice`の`conversationTurns`は各5件以下。`/summarize`の`memos`は1〜1,000件、`conversationLogs`は0〜1,000件、各ログの`turns`は0〜5件
+- 1リクエストの全ユーザー文字列の合計は100,000 Unicodeコードポイント以下。`memos[].date`と`conversationLogs[].date`は実在するグレゴリオ暦の`yyyy-MM-dd`のみ受け付ける
+- 認証済みリクエストでいずれかに違反した場合は既存形式の`invalid_request`（400）を返す。成功・エラーJSON、設定キー、DBスキーマ、Bundle Identifier、Teamは変更しない。Cloudflare側の要求量制限は公開時に別承認で確認する外部防御であり、今回のコード変更には含めない
 
 ### 2-3. 各エンドポイントの詳細
 
@@ -290,11 +299,11 @@ struct MyBooksMemoApp: App {
 
 ```typescript
 body: {
-  bookTitle: string            // 必須。空文字は不可
-  memoContent: string          // 必須。MemoEntry.contentItemsを改行連結した文字列。空文字は不可
-  conversationHistory: {       // 必須。初回は空配列
-    question: string
-    answer: string
+  bookTitle: string            // 必須。trim後に非空、500 Unicodeコードポイント以下
+  memoContent: string          // 必須。trim後に非空、20,000 Unicodeコードポイント以下
+  conversationHistory: {       // 必須。初回は空配列、最大5件
+    question: string           // 空文字可、20,000 Unicodeコードポイント以下
+    answer: string             // 空文字可、20,000 Unicodeコードポイント以下
   }[]
 }
 ```
@@ -315,9 +324,9 @@ body: {
 ```
 
 **実装上の注意**
-- `bookTitle`・`memoContent`が空文字の場合は`invalid_request`（400）を返す。`conversationHistory`は配列である限り要素0件を許容する（初回リクエストのため）
-- Gemini APIへのプロンプトは「メモ内容＋これまでの往復履歴」を渡し、言語化・具体性向上を目的とした質問文を1件だけ生成させる（往復5回制限・終了判定はiOS側のロジックであり、Workers側は往復回数を関知しない。requirements.md FR-04 Step5参照）
-- レスポンスがプレーンテキストではなくJSON形式で返ってこない、または`question`が空文字の場合はNF-03の異常形式としてWorkers側で500に変換する
+- `bookTitle`・`memoContent`が空文字または上限超過の場合、`conversationHistory`が5件超過の場合、本文内の全ユーザー文字列が100,000 Unicodeコードポイントを超える場合は`invalid_request`（400）を返す。`conversationHistory`は0件を許容する
+- Gemini APIへのプロンプトは「メモ内容＋これまでの往復履歴」を渡し、言語化・具体性向上を目的とした質問文を1件だけ生成させる（往復5回制限・終了判定はiOS側のロジックであり、Workers側は上限を超える履歴を拒否する。requirements.md FR-04 Step5参照）
+- `question`は前後空白除去後に空文字、またはUnicodeコードポイント20,000個を超える場合、切り詰めずNF-03の異常形式としてWorkers側で500に変換する
 
 ---
 
@@ -330,14 +339,14 @@ body: {
 
 ```typescript
 body: {
-  bookTitle: string             // 必須。空文字は不可
-  memos: {                      // 必須。1件以上（0件の場合はiOS側がボタンを非活性にしているため到達しない想定だが、Workers側でも0件チェックは行う）
-    date: string                 // "yyyy-MM-dd"形式
-    content: string              // MemoEntry.contentItemsを改行連結した文字列
+  bookTitle: string             // 必須。trim後に非空、500 Unicodeコードポイント以下
+  memos: {                      // 必須。日付降順で1件以上（0件の場合はiOS側がボタンを非活性にしているため到達しない想定だが、Workers側でも0件チェックは行う）
+    date: string                 // 実在するグレゴリオ暦の"yyyy-MM-dd"形式
+    content: string              // 空文字可、20,000 Unicodeコードポイント以下
   }[]
-  conversationLogs: {            // 必須（対話ログがない場合は空配列）
-    date: string
-    turns: { question: string; answer: string }[]
+  conversationLogs: {            // 必須。0〜1,000件
+    date: string                  // 実在するグレゴリオ暦の"yyyy-MM-dd"形式
+    turns: { question: string; answer: string }[] // 0〜5件、各文字列は空文字可・20,000 Unicodeコードポイント以下
   }[]
 }
 ```
@@ -358,7 +367,8 @@ body: {
 ```
 
 **実装上の注意**
-- `memos`が空配列の場合は`invalid_request`（400）を返す（iOS側は`SummaryViewModel.canGenerate`でメモ0件時にボタンを非活性にしているため通常到達しないが、Workers側は単独でも防御的に検証する）
+- `memos`は1〜1,000件、`conversationLogs`は0〜1,000件とする。各`conversationLogs[].turns`は0〜5件とし、日付・文字列・本文合計が共通入力制約に違反した場合は`invalid_request`（400）を返す。iOS側は`SummaryViewModel.canGenerate`でメモ0件時にボタンを非活性にしているが、Workers側でも単独で検証する
+- iOS側は`book.memoEntries`の格納順に依存せず、`date`の降順へ並べ替えてから`memos`を作る
 - 成功時、iOS側は`summary`の値を`Book.cachedSummary`に、レスポンス受信時刻を`Book.cachedSummaryGeneratedAt`に保存する（requirements.md FR-05 Step7）
 - 失敗時、`Book.cachedSummary`・`cachedSummaryGeneratedAt`は変更しない（既存キャッシュの表示を維持する。requirements.md FR-05異常系）
 
@@ -373,11 +383,11 @@ body: {
 
 ```typescript
 body: {
-  bookTitle: string                // 必須。空文字は不可
-  memoContent: string              // 必須。MemoEntry.contentItemsを改行連結した文字列。空文字は不可
-  conversationTurns: {             // 必須（対話を実施していない、または1ターンも成立しなかった場合は空配列）
-    question: string
-    answer: string
+  bookTitle: string                // 必須。trim後に非空、500 Unicodeコードポイント以下
+  memoContent: string              // 必須。trim後に非空、20,000 Unicodeコードポイント以下
+  conversationTurns: {             // 必須。0〜5件
+    question: string               // 空文字可、20,000 Unicodeコードポイント以下
+    answer: string                 // 空文字可、20,000 Unicodeコードポイント以下
   }[]
 }
 ```
@@ -399,6 +409,7 @@ body: {
 
 **実装上の注意**
 - 呼び出し元はレスポンスを`await`で待たずFire-and-forget的に呼ぶ（architecture.md 4章の`CloudflareWorkersClient`責務欄参照）。iOS側は生成中・生成成功・生成失敗の状態を`MemoEntry.dailyAdvice`の値の有無＋一時的なUI状態（1-4参照）で管理する
+- `bookTitle`・`memoContent`が空文字または上限超過の場合、`conversationTurns`が5件超過の場合、本文内の全ユーザー文字列が100,000 Unicodeコードポイントを超える場合は`invalid_request`（400）を返す
 - 成功時：`dailyAdvice`にレスポンステキストを保存する
 - 失敗時：`dailyAdvice`は`nil`のまま。エラー種別（API失敗/オフライン/レート制限）に応じてERR-15〜17（basic_design.md Section 7）を付箋内に表示する。ただしオフライン判定（ERR-16）はWorkersへのリクエスト自体を送らず、iOS側のネットワーク到達性チェック（2-4末尾のAPIClient設計参照）の時点で判定する
 
@@ -412,13 +423,15 @@ GET https://ndlsearch.ndl.go.jp/api/sru?operation=searchRetrieve&query=isbn%3D{I
 認証：不要
 ```
 
-レスポンスはdcndl形式のXML。`dc:title`（タイトル）・`dc:creator`（著者）はDublin Coreの標準要素であり、この2項目の抽出方法は確定情報として扱ってよい。
+レスポンスはdcndl形式のXML。`dc:title`（タイトル）・`dc:creator`（著者）はDublin Coreの標準要素である。検索結果が複数ある場合は最初のSRU `record`内だけから抽出し、後続`record`から欠けた項目を補完しない。XML全体をパースできない場合は`nil`として扱う。
 
-> ⚠️ **要確認事項（architecture.mdから引き継ぎ・未解決）**：書影（表紙画像）の取得方法について、WebSearchで追加調査した結果、次の2点が判明した。
-> 1. 国立国会図書館サーチには`https://ndlsearch.ndl.go.jp/thumbnail/{識別子}.jpg`という書影専用のAPIが別途存在する（SRU検索結果のXMLに画像バイナリやURLが直接含まれるわけではない）
-> 2. `{識別子}`にISBNをそのまま渡しても取得できない事例が複数報告されており、レスポンスXML内の`rdfs:seeAlso`要素等から抽出できる「JP-eコード」（20桁の英数字）を使う必要がある場合がある。ただしJP-eコードを安定的に取得する一般的な方法は確立されておらず、確実に書影が取得できる保証はない
->
-> この事実は、architecture.mdが「Phase 5作成前またはFR-01実装着手前に確定させる必要がある」と明記していた要確認事項に対する調査結果であり、まだ完全には解消していない。**Phase 7でFR-01（NDLSearchService）に着手する前に、実際のISBN（例：ダミーデータの`9784478025819`）でSRU APIとサムネイルAPIの両方を実機/実環境で叩き、書影が実際に取得できるか・取得できる場合のURLパターンを確認するpre-implementation-checkを行うこと**。取得できないと判明した場合でも、requirements.md「作らないこと」に明記の通りAmazon等への代替フォールバックは行わず、プレースホルダー画像表示（`BookCoverView`の書影なし描画。モックで実装済み）にフォールバックすればよいため、機能要件自体への影響はない。
+書影取得は実装前確認で確定した。ISBNを使うサムネイル取得をベストエフォートで行い、書影がない場合または取得に失敗した場合は`nil`として返す。`BookCoverView`はこの場合にプレースホルダー画像を表示し、代替の書影サービスにはフォールバックしない。
+
+### 2-5. APIClientの安全なログ仕様
+
+- HTTP応答を受信した失敗時に限り、タイムスタンプ・`request.url?.path`・HTTPステータスコードだけを整形して出力する
+- scheme・host・query・ヘッダー・ボディ・`WorkersErrorResponse`の内容・秘密情報は出力しない。HTTP応答を得られない`URLError`等はログに出力しない
+- ログ文字列の生成は`APIClient`内の`internal`関数に分離する。単体テストでscheme・host・query・header・bodyのダミー値が戻り値に含まれないことを検証する
 
 ---
 
@@ -571,7 +584,7 @@ final class SummaryViewModel {
         do {
             let response = try await CloudflareWorkersClient.shared.summarize(
                 bookTitle: book.title,
-                memos: book.memoEntries.map { .init(date: $0.date, content: $0.joinedContentForAI) },
+                memos: book.memoEntries.sorted { $0.date > $1.date }.map { .init(date: $0.date, content: $0.joinedContentForAI) },
                 conversationLogs: book.conversationLogs.map { .init(date: $0.date, turns: $0.turns) }
             )
             book.cachedSummary = response.summary
@@ -585,7 +598,7 @@ final class SummaryViewModel {
 }
 ```
 
-`SummaryView`側にも、`MemoCardView`のアドバイス失敗表示と同様の要領で、`failureReason`が非nilのときにエラーメッセージ＋（無料枠超過以外は）「再試行」ボタンを表示するUIを追加する。
+`SummaryView`側にも、`MemoCardView`のアドバイス失敗表示と同様の要領で、`failureReason`が非nilのときにエラーメッセージ＋（無料枠超過以外は）「再試行」ボタンを表示するUIを追加する。メモが0件なら、キャッシュ済み要約は表示したまま「要約を再作成する」を非活性にし、「メモを記録すると要約を作成できます」と表示する。
 
 **`MemoEntry`のアドバイス生成状態管理（永続モデルからの分離）**
 
@@ -641,7 +654,7 @@ final class BookDetailViewModel {
 
 `AdviceDisplayState`・`AdviceFailureReason`（モックの`MemoEntry.swift`に定義済み）はそのまま流用してよいが、定義場所を`MemoEntry.swift`から`BookDetailViewModel.swift`（またはUtilities配下の独立ファイル）に移動する。
 
-**`MemoEditorViewModel`・`AIChatViewModel`**：`triggerAdviceGeneration()`の呼び出し元を`memo.triggerAdviceGeneration()`（モデルメソッド）から`bookDetailViewModel.triggerAdviceGeneration(for: memo)`（ViewModelメソッド）に置き換える。`AIChatViewModel`の`send()`内の固定質問取得（`askNextQuestion()`）を、`CloudflareWorkersClient.chat()`への実呼び出しに置き換える。往復上限（5回）・「終了する」ボタンによる終了判定ロジック自体（`endConversation()`・`finishAfterLimitReached()`・`saveIfNeeded()`）は変更不要。
+**`MemoEditorViewModel`・`AIChatViewModel`**：`triggerAdviceGeneration()`の呼び出し元を`memo.triggerAdviceGeneration()`（モデルメソッド）から`bookDetailViewModel.triggerAdviceGeneration(for: memo)`（ViewModelメソッド）に置き換える。`AIChatViewModel`の`send()`内の固定質問取得（`askNextQuestion()`）を、`CloudflareWorkersClient.chat()`への実呼び出しに置き換える。最初の質問を受信するまで送信不可とし、送信時に成立した往復を一度だけ保持する。再試行は同じ履歴を再送して重複追加しない。`endConversation()`・`finishAfterLimitReached()`・`saveIfNeeded()`は、次の質問の失敗または応答待ちで終了した場合も送信済み往復を保存し、終了後の応答を反映しないようにする。往復上限は5回のままとする。
 
 ### 3-3. Cloudflare Workersのモジュール構成
 
@@ -652,9 +665,9 @@ workers/
 ├── src/
 │   ├── index.ts        # pathnameで/chat・/summarize・/adviceに振り分け。他は404
 │   ├── routes/
-│   │   ├── chat.ts       # validate → 認証(lib/auth) → プロンプト構築 → lib/gemini呼び出し → { question } を返す
-│   │   ├── summarize.ts  # validate → 認証 → プロンプト構築 → lib/gemini呼び出し → { summary } を返す
-│   │   └── advice.ts     # validate → 認証 → プロンプト構築 → lib/gemini呼び出し → { advice } を返す
+│   │   ├── chat.ts       # 認証(lib/auth) → validate → プロンプト構築 → lib/gemini呼び出し → { question } を返す
+│   │   ├── summarize.ts  # 認証 → validate → プロンプト構築 → lib/gemini呼び出し → { summary } を返す
+│   │   └── advice.ts     # 認証 → validate → プロンプト構築 → lib/gemini呼び出し → { advice } を返す
 │   ├── lib/
 │   │   ├── auth.ts        # X-Shared-Secret検証。不一致時は401のErrorResponseを返す
 │   │   ├── gemini.ts       # gemini-3.1-flash-lite への fetch 呼び出し。レスポンス空文字チェック（NF-03）
@@ -669,16 +682,16 @@ workers/
 **各routes/*.tsの処理順序（共通パターン）**
 
 ```
-1. リクエストボディをJSONとしてパースする（パース失敗 → invalid_request, 400）
-2. lib/validate.tsの型ガード関数でリクエスト形式を検証する（不正 → invalid_request, 400）
-3. lib/auth.tsでX-Shared-Secretを検証する（不一致 → unauthorized, 401）
+1. lib/auth.tsでX-Shared-Secretを検証する（欠落または不一致 → 本文を読まずunauthorized, 401）
+2. リクエストボディをJSONとしてパースする（パース失敗 → invalid_request, 400）
+3. lib/validate.tsの型ガード関数でリクエスト形式を検証する（不正 → invalid_request, 400）
 4. プロンプトを構築し、lib/gemini.tsを呼び出す
    - Gemini APIが429を返す → rate_limited, 429を透過
    - Gemini APIがタイムアウト・5xx・空文字/異常形式のレスポンスを返す → generation_failed, 500
 5. 成功時、該当エンドポイントのレスポンス形式（2-3参照）でJSONを返す
 ```
 
-> Step2（バリデーション）とStep3（認証）の順序：不正なリクエストボディでも認証だけ先に通す設計と、認証前にリクエスト内容を検査する設計のどちらもあり得るが、本設計では「不正な形式のリクエストは認証結果によらず一律400を返す」方式（Step2を先に実施）を採用する。理由：シークレットを知らない第三者に対しても、リクエスト形式に関する情報（どのフィールドが必須か等）を401より先に返してしまう trade-off はあるが、エンドポイントが3つしかなく個人開発規模のため実害は小さく、実装の単純さを優先する。認証を先に行う方式に変更したい場合は実装時の判断でよい（要件・エラー文言の変更を伴わないため要確認事項とはしない）。
+> 認証は本文読取より先に行う。共有シークレットが欠落または不一致なら、本文を読まず既存形式の401を返す。認証済みリクエストだけをパース・検証するため、不正JSON・schema・既存上限違反は400になる。
 
 ### 3-4. モック→本実装の引き継ぎ方針：モック専用表記の除去リスト
 
@@ -783,8 +796,8 @@ struct AdviceResponse: Codable {
     let advice: String
 }
 
-/// Workers側のエラーレスポンス（2-2参照）。iOS側はHTTPステータスコードで判定するため
-/// この型自体をUI表示に使うことはないが、Xcodeコンソールログ出力（FR-06 No.5）には使う
+/// Workers側のエラーレスポンス（2-2参照）。
+/// iOS側はHTTPステータスコードで判定し、この内容をUIやログに出力しない
 struct WorkersErrorResponse: Codable {
     let error: String
     let message: String?
@@ -849,64 +862,123 @@ export interface ErrorResponse {
 architecture.mdの方針（1.2）に従い、zod等は導入せず手書きの型ガード関数とする。
 
 ```typescript
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
+const MAX_BODY_BYTES = 512 * 1024;
+const MAX_BOOK_TITLE_CODE_POINTS = 500;
+const MAX_TEXT_CODE_POINTS = 20_000;
+const MAX_TOTAL_CODE_POINTS = 100_000;
+
+export async function parseJsonBody(request: Request): Promise<unknown | undefined> {
+  const contentLength = request.headers.get("Content-Length");
+  if (contentLength !== null && Number(contentLength) > MAX_BODY_BYTES) return undefined;
+
+  try {
+    const bytes = await request.arrayBuffer();
+    if (bytes.byteLength > MAX_BODY_BYTES) return undefined;
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    return undefined;
+  }
+}
+
+function codePointLength(value: string): number {
+  return [...value].length;
+}
+
+function isText(value: unknown, min: number, max: number): value is string {
+  return typeof value === "string" &&
+    (min === 0 || value.trim().length > 0) &&
+    codePointLength(value) <= max;
+}
+
+function isGregorianDate(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const [year, month, day] = match.slice(1).map(Number);
+  if (year < 1 || month < 1 || month > 12) return false;
+  const lastDay = [31, (year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+  return day >= 1 && day <= lastDay;
 }
 
 function isConversationTurn(value: unknown): value is ConversationTurn {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
-  return typeof v.question === "string" && typeof v.answer === "string";
+  return isText(v.question, 0, MAX_TEXT_CODE_POINTS) &&
+    isText(v.answer, 0, MAX_TEXT_CODE_POINTS);
+}
+
+function totalCodePoints(values: unknown[]): number {
+  return values.reduce(
+    (sum, value) => sum + (typeof value === "string" ? codePointLength(value) : 0),
+    0
+  );
 }
 
 export function isChatRequest(body: unknown): body is ChatRequest {
   if (typeof body !== "object" || body === null) return false;
   const v = body as Record<string, unknown>;
+  const history = v.conversationHistory;
   return (
-    isNonEmptyString(v.bookTitle) &&
-    isNonEmptyString(v.memoContent) &&
-    Array.isArray(v.conversationHistory) &&
-    v.conversationHistory.every(isConversationTurn)
+    isText(v.bookTitle, 1, MAX_BOOK_TITLE_CODE_POINTS) &&
+    isText(v.memoContent, 1, MAX_TEXT_CODE_POINTS) &&
+    Array.isArray(history) && history.length <= 5 &&
+    history.every(isConversationTurn) &&
+    totalCodePoints([v.bookTitle, v.memoContent, ...history.flatMap((turn) => [turn.question, turn.answer])]) <= MAX_TOTAL_CODE_POINTS
   );
 }
 
 export function isSummarizeRequest(body: unknown): body is SummarizeRequest {
   if (typeof body !== "object" || body === null) return false;
   const v = body as Record<string, unknown>;
+  const memos = v.memos;
+  const logs = v.conversationLogs;
   const memosValid =
-    Array.isArray(v.memos) &&
-    v.memos.length > 0 &&
-    v.memos.every(
+    Array.isArray(memos) && memos.length >= 1 && memos.length <= 1_000 &&
+    memos.every(
       (m) =>
         typeof m === "object" && m !== null &&
-        isNonEmptyString((m as Record<string, unknown>).date) &&
-        typeof (m as Record<string, unknown>).content === "string"
+        isGregorianDate((m as Record<string, unknown>).date) &&
+        isText((m as Record<string, unknown>).content, 0, MAX_TEXT_CODE_POINTS)
     );
   const logsValid =
-    Array.isArray(v.conversationLogs) &&
-    v.conversationLogs.every(
+    Array.isArray(logs) && logs.length <= 1_000 &&
+    logs.every(
       (l) =>
         typeof l === "object" && l !== null &&
-        isNonEmptyString((l as Record<string, unknown>).date) &&
+        isGregorianDate((l as Record<string, unknown>).date) &&
         Array.isArray((l as Record<string, unknown>).turns) &&
+        (l as { turns: unknown[] }).turns.length <= 5 &&
         (l as { turns: unknown[] }).turns.every(isConversationTurn)
     );
-  return isNonEmptyString(v.bookTitle) && memosValid && logsValid;
+  if (!isText(v.bookTitle, 1, MAX_BOOK_TITLE_CODE_POINTS) ||
+      !memosValid || !logsValid || !Array.isArray(memos) || !Array.isArray(logs)) {
+    return false;
+  }
+  const strings = [v.bookTitle, ...memos.flatMap((memo) => {
+    const m = memo as { date: string; content: string };
+    return [m.date, m.content];
+  }), ...logs.flatMap((log) => {
+    const l = log as { date: string; turns: ConversationTurn[] };
+    return [l.date, ...l.turns.flatMap((turn) => [turn.question, turn.answer])];
+  })];
+  return totalCodePoints(strings) <= MAX_TOTAL_CODE_POINTS;
 }
 
 export function isAdviceRequest(body: unknown): body is AdviceRequest {
   if (typeof body !== "object" || body === null) return false;
   const v = body as Record<string, unknown>;
+  const turns = v.conversationTurns;
   return (
-    isNonEmptyString(v.bookTitle) &&
-    isNonEmptyString(v.memoContent) &&
-    Array.isArray(v.conversationTurns) &&
-    v.conversationTurns.every(isConversationTurn)
+    isText(v.bookTitle, 1, MAX_BOOK_TITLE_CODE_POINTS) &&
+    isText(v.memoContent, 1, MAX_TEXT_CODE_POINTS) &&
+    Array.isArray(turns) && turns.length <= 5 &&
+    turns.every(isConversationTurn) &&
+    totalCodePoints([v.bookTitle, v.memoContent, ...turns.flatMap((turn) => [turn.question, turn.answer])]) <= MAX_TOTAL_CODE_POINTS
   );
 }
 ```
 
-> `memos`は「1件以上」を必須とする（`isSummarizeRequest`が`v.memos.length > 0`を検証する）。`conversationLogs`・`conversationHistory`・`conversationTurns`は0件を許容する（配列であることのみ検証する）。
+各ハンドラは`parseJsonBody()`の戻り値に既存の`isChatRequest()`・`isSummarizeRequest()`・`isAdviceRequest()`を適用する。本文読取のrejectを含め、`undefined`または型ガードが`false`の場合は`invalid_request`（400）を返して終了する。`memos`は1〜1,000件、`conversationLogs`は0〜1,000件、`conversationHistory`・`conversationTurns`は0〜5件を受け付ける。
 
 ### 4-4. バリデーションルール一覧（Swift側・クライアントサイド）
 
@@ -924,17 +996,14 @@ export function isAdviceRequest(body: unknown): body is AdviceRequest {
 
 `lib/gemini.ts`はGemini APIからのレスポンステキストが以下のいずれかに該当する場合、呼び出し元のroutes/*.tsに例外を投げ、routes側が`generation_failed`（500）に変換する。
 
-- レスポンステキストが空文字、または空白のみ
+- 前後の空白を除去したレスポンステキストが空文字
+- 前後の空白を除去したレスポンステキストがUnicodeコードポイント20,000個を超える
 - レスポンスがJSON形式で返る想定はない（NF-03「プレーンテキストとして扱い、JSON形式のレスポンスは期待しない」）ため、Gemini APIからのテキストをそのまま`question`/`summary`/`advice`の値として使う。パース処理自体は発生しない
 
-「極端に長い」の具体的な文字数閾値はrequirements.md・basic_design.mdのいずれにも数値の指定がない。Phase 1では上限チェックを実装せず、実運用で問題が生じた場合にのみ対処する（要確認事項とはしない軽微な事項と判断。個人開発の同期的な使い方であり、極端に長い応答が生成される具体的なリスクシナリオが現時点でないため）。
+上限は前後空白除去後のUnicodeコードポイント20,000個とする。超過時は切り詰めず、既存の`generation_failed`（500）に変換する。設定キー・APIのJSON形式・DBスキーマは変更しない。
 
 ---
 
 ## 要確認事項
 
-1. **NDL API書影取得方式（2-4参照、architecture.mdからの引き継ぎ）**：SRU APIのXMLレスポンスとは別に書影専用API（`https://ndlsearch.ndl.go.jp/thumbnail/{識別子}.jpg`）が存在すること、ISBNをそのまま渡しても取得できない場合がありJP-eコード抽出が必要になりうることがWebSearchで判明した。Phase 7のFR-01実装着手前に、実際のISBN（ダミーデータの`9784478025819`等）で両APIを実機/実環境から呼び出し、書影取得の可否・具体的なURLパターンを確認するpre-implementation-checkが必要。取得不可と判明した場合もプレースホルダー画像へのフォールバックで機能要件は満たせるため、機能停止には至らない。
-
-2. **バリデーション先行順序（3-3参照）**：Workers側の各routes/*.tsで「リクエスト形式検証→シークレット認証」の順に実施する設計としたが、「シークレット認証→リクエスト形式検証」の順にする代替案もある。エラー文言・ステータスコードの一覧に影響はないため実装時の判断に委ねてよいと判断したが、念のため要確認事項として記載する。
-
-3. **`BookshelfViewModel`の`@Query`化について（3-2参照）**：ViewModelが`ModelContext`を手動で保持し`fetch()`を呼ぶ設計と、View側で`@Query`プロパティラッパーを直接使いViewModelを薄くする設計のどちらもあり得る。本ドキュメントは前者（既存のBookshelfViewModelの構造を維持しやすい）で記述したが、SwiftUI標準の`@Query`を使う方がコード量が少なく一般的なパターンでもあるため、実装時にどちらを採用するかはClaude Codeの判断に委ねてよい。
+1. **`BookshelfViewModel`の`@Query`化について（3-2参照）**：ViewModelが`ModelContext`を手動で保持し`fetch()`を呼ぶ設計と、View側で`@Query`プロパティラッパーを直接使いViewModelを薄くする設計のどちらもあり得る。本ドキュメントは前者（既存のBookshelfViewModelの構造を維持しやすい）で記述したが、SwiftUI標準の`@Query`を使う方がコード量が少なく一般的なパターンでもあるため、実装時にどちらを採用するかはClaude Codeの判断に委ねてよい。

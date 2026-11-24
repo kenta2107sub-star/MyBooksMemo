@@ -11,14 +11,12 @@ enum APIClient {
     static func send(_ request: URLRequest, timeout: TimeInterval) async throws -> (Data, HTTPURLResponse) {
         var request = request
         request.timeoutInterval = timeout
-        let endpoint = request.url?.absoluteString ?? "unknown"
 
         let data: Data
         let response: URLResponse
         do {
             (data, response) = try await URLSession.shared.data(for: request)
         } catch let urlError as URLError {
-            log(endpoint: endpoint, statusCode: nil, errorCode: urlError.code.rawValue)
             switch urlError.code {
             case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed, .cannotConnectToHost, .cannotFindHost:
                 throw APIError.network
@@ -28,54 +26,47 @@ enum APIClient {
                 throw APIError.serverError
             }
         } catch {
-            log(endpoint: endpoint, statusCode: nil, errorCode: nil)
             throw APIError.serverError
         }
 
         guard let httpResponse = response as? HTTPURLResponse else {
-            log(endpoint: endpoint, statusCode: nil, errorCode: nil)
             throw APIError.serverError
         }
-
-        log(endpoint: endpoint, statusCode: httpResponse.statusCode, errorCode: nil)
 
         switch httpResponse.statusCode {
         case 200..<300:
             return (data, httpResponse)
         case 400:
-            logWorkersErrorMessage(data)
+            logHTTPFailure(path: request.url?.path ?? "unknown", statusCode: httpResponse.statusCode)
             throw APIError.decodingError
         case 401:
-            logWorkersErrorMessage(data)
+            logHTTPFailure(path: request.url?.path ?? "unknown", statusCode: httpResponse.statusCode)
             throw APIError.unauthorized
         case 404:
+            logHTTPFailure(path: request.url?.path ?? "unknown", statusCode: httpResponse.statusCode)
             throw APIError.decodingError
         case 429:
-            logWorkersErrorMessage(data)
+            logHTTPFailure(path: request.url?.path ?? "unknown", statusCode: httpResponse.statusCode)
             throw APIError.rateLimited
         default:
-            logWorkersErrorMessage(data)
+            logHTTPFailure(path: request.url?.path ?? "unknown", statusCode: httpResponse.statusCode)
             throw APIError.serverError
         }
     }
 
-    /// FR-06共通ルールNo.5：ステータスコード・エンドポイント・タイムスタンプのみ出力する。
-    /// メモ本文・対話内容等の個人情報はこの関数の引数として渡せない設計になっている
-    /// （そもそもリクエストボディを引数に取らない）。
-    private static func log(endpoint: String, statusCode: Int?, errorCode: Int?) {
-        let timestamp = ISO8601DateFormatter().string(from: .now)
-        if let statusCode {
-            print("[APIClient] \(timestamp) \(endpoint) -> HTTP \(statusCode)")
-        } else {
-            print("[APIClient] \(timestamp) \(endpoint) -> transport error (code: \(errorCode.map(String.init) ?? "unknown"))")
-        }
+    /// FR-06共通ルールNo.5：HTTP応答を受信した失敗時だけを出力する。
+    private static func logHTTPFailure(path: String, statusCode: Int) {
+        print(failureLogMessage(path: path, statusCode: statusCode))
     }
 
-    /// detailed_design.md 2-2・4-1：Cloudflare Workersのエラーレスポンス（`{error, message}`）の
-    /// `message`はXcodeコンソールログにのみ出力してよい（画面表示には使わない）。
-    /// NDL API等、この形式でないレスポンスはデコードに失敗するため何も出力しない（ベストエフォート）。
-    private static func logWorkersErrorMessage(_ data: Data) {
-        guard let response = try? JSONDecoder().decode(WorkersErrorResponse.self, from: data) else { return }
-        print("[APIClient] Workers error detail: \(response.error) - \(response.message ?? "(no message)")")
+    /// テスト可能なログ整形処理。URL全体・ヘッダー・ボディ・
+    /// Workersエラー詳細を受け取らないことで、秘密情報の混入を構造的に防ぐ。
+    static func failureLogMessage(
+        path: String,
+        statusCode: Int,
+        timestamp: Date = .now
+    ) -> String {
+        let timestampText = ISO8601DateFormatter().string(from: timestamp)
+        return "[APIClient] \(timestampText) \(path) -> HTTP \(statusCode)"
     }
 }
