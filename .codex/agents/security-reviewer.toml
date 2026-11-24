@@ -1,6 +1,6 @@
 name = "security-reviewer"
 description = "Phase 7 Step F でCodex Securityを利用できない場合のフォールバック担当。security_report.mdを生成する。"
-model = "gpt-5.6-sol"
+model = "gpt-6.2-sol"
 model_reasoning_effort = "high"
 developer_instructions = '''
 

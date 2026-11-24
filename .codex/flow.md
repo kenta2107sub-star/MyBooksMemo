@@ -39,9 +39,9 @@ Pluginが利用できない場合だけ、`security-reviewer` へ専用のフォ
 
 | 役割 | モデル | 工数（effort） | 設定方法 |
 |---|---|---|---|
-| メインエージェント | `gpt-5.6-sol` | high | `.codex/config.toml` |
-| mock-builder・implementer・debugger・code-reviewer・security-reviewer | `gpt-5.6-sol` | high | `.codex/agents/*.toml` |
-| その他のサブエージェント | `gpt-5.6-terra` | high | `.codex/agents/*.toml` |
+| メインエージェント | `gpt-6.2-astra` | high | `.codex/config.toml` |
+| mock-builder・implementer・debugger・code-reviewer・security-reviewer | `gpt-6.2-sol` | high | `.codex/agents/*.toml` |
+| その他のサブエージェント | `gpt-6.2-sol` | high | `.codex/agents/*.toml` |
 
 ### サブエージェント一覧
 
@@ -56,7 +56,7 @@ Pluginが利用できない場合だけ、`security-reviewer` へ専用のフォ
 | tester | Phase 7 Step B（テスト） | testing-runner |
 | code-reviewer | Phase 7 Step D（コードレビュー） | code-reviewer |
 | security-reviewer | Phase 7 Step F（Codex Security利用不可時のフォールバック） | security-and-hardening |
-| debugger | Phase 7 Step C（FAIL修正）・随時のバグ修正 | debug-runner / debugging-approach |
+| debugger | Phase 7 Step C（FAIL修正）・随時のバグ修正 | debug-runner |
 | deployer | Phase 8（デプロイ） | deployment-runner |
 
 ### 委譲の原則
@@ -96,7 +96,7 @@ Pluginが利用できない場合だけ、`security-reviewer` へ専用のフォ
 5. 利用可能な最も実環境に近い安全な環境で、画面を見るだけで終えず、クリック、タップ、入力、
    スクロール、画面遷移、コマンド実行、リクエスト送信等の該当操作を実行する。
    正常系に加えて空状態・入力エラー・失敗状態と、操作後の表示・状態・応答を確認する。
-   問題があれば `debugging-approach` と `debug-runner` で修正し、同じ確認を再実行する
+   問題があれば `debug-runner` で原因を確認して修正し、同じ確認を再実行する
 6. 実行環境、バージョン、操作シナリオ、期待結果、実測結果、コマンド、
    スクリーンショットまたはログ、未検証範囲を記録する
 
@@ -758,6 +758,10 @@ implementer が「要確認事項」を返した場合（仕様の不明・曖�
 
 ### Step B：テスト（tester に委譲）
 
+- 実機確認を依頼するときは、主担当が対象アプリとビルドを冒頭に1回だけ示す。同じビルドで互いの操作・結果に依存しない項目は、番号付きの「操作 → 期待結果」にまとめて一度に案内する。
+  返信例は「①OK、②NG（表示されない）、③未実施」。ユーザーの報告は番号ごとに記録し、部分回答なら未回答・未実施の番号、または不具合の切り分けに必要な番号だけを次に扱う。
+  前項の結果で手順が変わる場合や、別ビルド・新しい権限が必要な項目は分ける。署名・Apple Developer Portalへの登録・端末導入に必要な承認と照合は従来の手順に従い、実機確認への返信を承認として扱わない。
+
 ```
 tester サブエージェントに委譲する（testing-runner スキルを使用）。
 自動テストに加えて、全フェーズ共通の「ユーザー提示前の事前検証ゲート」と同じ基準で
@@ -899,8 +903,8 @@ code-reviewer サブエージェントに委譲する。委譲プロンプト例
 cat code_review_report.md で結果を確認する。
 progress.md のループ回数・レビュー結果を更新する。
 
-🔴あり → implementer に委譲して修正 → Step B へ戻る
-        （code-reviewer が自動修正済みの場合は Step B へ直接戻ってよい）
+🔴あり → 主担当が根拠と承認済み範囲を確認 → implementer が修正 → Step B で再テスト
+        対象や仕様を変える指摘は理由を示してユーザー判断へ。再テスト後に指摘の解消を確認する
 🟡あり → ユーザーに提示 → YES なら implementer に委譲して修正 → Step B へ / NO なら次へ
 🔴ゼロ・🟡確認済み → Step F へ
 ```

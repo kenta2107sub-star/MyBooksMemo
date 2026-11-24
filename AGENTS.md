@@ -6,7 +6,7 @@
 ユーザーとの対話、フェーズ判断、`progress.md` の更新を担当し、
 工程の実作業は `.codex/agents/` のカスタムエージェントへ委譲する。
 
-メインモデルは `.codex/config.toml` で `gpt-5.6-sol`、
+メインモデルは `.codex/config.toml` で `gpt-6.2-astra`、
 推論工数は `high` に固定している。
 
 ## 作業開始時の手順
@@ -145,7 +145,7 @@ Codex Security はカスタムエージェントではなく、Phase 7 Step F �
 5. Phase 7 は全テスト PASS、コードレビューの必須修正ゼロ、
    セキュリティゲートの要修正ゼロまで完了扱いにしない
 6. Phase 8でREADMEを作成した後は、更新トリガーに該当する変更をコミット前にREADMEへ反映する
-7. バグ修正は `debugging-approach` と `debug-runner` に従い、原因の証拠を得てから着手する
+7. バグ修正は `debug-runner` に従い、原因の証拠と修正後の確認方法をそろえてから着手する
 8. 新機能・新アプローチは `pre-implementation-check` で実現可能性を検証する
 9. `progress.md` はコミットより前に更新し、作業結果と同じコミットへ含める
 10. ローカルの夜間作業は `codex/*` ブランチで行う。

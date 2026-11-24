@@ -1,6 +1,6 @@
 name = "design-writer"
 description = "設計書と README の作成・更新担当。メインから対象ファイルと使用スキルを受け取って動く。"
-model = "gpt-5.6-terra"
+model = "gpt-6.2-sol"
 model_reasoning_effort = "high"
 developer_instructions = '''
 
