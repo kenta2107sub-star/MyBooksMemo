@@ -1,6 +1,6 @@
 name = "consistency-checker"
 description = "Phase 6 の整合性チェック担当。全設計書とモックを確認し、修正結果を返す。"
-model = "gpt-5.6-terra"
+model = "gpt-6.2-sol"
 model_reasoning_effort = "high"
 developer_instructions = '''
 

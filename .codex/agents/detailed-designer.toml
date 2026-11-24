@@ -1,6 +1,6 @@
 name = "detailed-designer"
 description = "Phase 5 の詳細設計担当。既存設計書とモックから detailed_design.md を作成する。"
-model = "gpt-5.6-terra"
+model = "gpt-6.2-sol"
 model_reasoning_effort = "high"
 developer_instructions = '''
 

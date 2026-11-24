@@ -1,6 +1,6 @@
 name = "tester"
 description = "Phase 7 Step B の総合テスト担当。テストを実施し test_report.md を生成する。"
-model = "gpt-5.6-terra"
+model = "gpt-6.2-sol"
 model_reasoning_effort = "high"
 developer_instructions = '''
 

@@ -1,6 +1,6 @@
 name = "implementer"
 description = "Phase 7 Step A と Step C.5 の実装担当。設計書に忠実に変更し、検証する。"
-model = "gpt-5.6-sol"
+model = "gpt-6.2-sol"
 model_reasoning_effort = "high"
 developer_instructions = '''
 

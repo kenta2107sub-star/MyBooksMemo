@@ -4,12 +4,12 @@
 
 | エージェント | モデル | 主な担当 |
 |---|---|---|
-| `mock-builder` / `implementer` / `debugger` / `code-reviewer` / `security-reviewer` | `gpt-5.6-sol`・high | 複雑な生成、実装、原因分析、レビュー |
-| `researcher` / `design-writer` / `detailed-designer` | `gpt-5.6-terra`・high | 調査、設計書作成、詳細設計 |
-| `consistency-checker` / `tester` / `deployer` | `gpt-5.6-terra`・high | 整合性確認、テスト、承認済みデプロイ |
+| `mock-builder` / `implementer` / `debugger` / `code-reviewer` / `security-reviewer` | `gpt-6.2-sol`・high | 複雑な生成、実装、原因分析、レビュー |
+| `researcher` / `design-writer` / `detailed-designer` | `gpt-6.2-sol`・high | 調査、設計書作成、詳細設計 |
+| `consistency-checker` / `tester` / `deployer` | `gpt-6.2-sol`・high | 整合性確認、テスト、承認済みデプロイ |
 
 定義は `.codex/agents/*.toml` に置く。
-メインは `gpt-5.6-sol`・high を使う。
+メインは `gpt-6.2-astra`・high を使う。
 
 ## フェーズ別の必須スキル
 
@@ -25,7 +25,7 @@
 | `consistency-checker` | 設計書とモックの整合性 | Phase 6 |
 | `implementation-runner` | 本実装 | Phase 7 Step A |
 | `testing-runner` | 総合テスト | Phase 7 Step B |
-| `debug-runner` | バグ調査・修正 | Phase 7 Step C |
+| `debug-runner` | 修正前の原因確認・バグ調査と修正 | Phase 7 Step C |
 | `code-reviewer` | コードレビュー | Phase 7 Step D |
 | `deployment-runner` | サーバーデプロイ | Phase 8 |
 | `readme-writer` → `humanizer-ja` | README 作成・更新 | Phase 8、運用中の更新時 |
@@ -48,9 +48,7 @@ Phase 0 で利用可否を確認し、利用できない場合は `security-revi
 | スキル | 使用条件 |
 |---|---|
 | `pre-implementation-check` | 新機能、新アプローチ、外部API、OS制約を扱う前 |
-| `debugging-approach` | 原因が証拠で確定していない不具合の修正前 |
-| `refactoring-runner` | 動作を変えず構造を改善するとき |
-| `code-simplification` | 複雑さを減らす必要があるとき |
+| `refactoring-runner` | 動作を保つ構造改善、コードの複雑さのレビューと簡素化案 |
 | `security-and-hardening` | 認証、入力、秘密情報、外部連携を扱うとき |
 | `performance-optimization` | 計測でボトルネックを確認した後 |
 | `ci-cd-and-automation` | CI/CDを構築・変更するとき |

@@ -1,6 +1,6 @@
 name = "deployer"
 description = "Phase 8 のデプロイ担当。ユーザーの明示承認が伝達された場合だけ本番反映する。"
-model = "gpt-5.6-terra"
+model = "gpt-6.2-sol"
 model_reasoning_effort = "high"
 developer_instructions = '''
 

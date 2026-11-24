@@ -1,6 +1,6 @@
 name = "mock-builder"
 description = "Phase 3 と Phase 4 の UI モック担当。basic_design.md に基づき実装と視覚確認を行う。"
-model = "gpt-5.6-sol"
+model = "gpt-6.2-sol"
 model_reasoning_effort = "high"
 developer_instructions = '''
 
